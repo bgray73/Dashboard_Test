@@ -1,0 +1,464 @@
+It’s the large block in my previous message, but I can see how it got buried. Here is the exact prompt to copy and paste into Replit Agent’s Plan mode:
+
+Build LabOps — Phase 1
+
+I want to build a clean, lightweight web application called LabOps.
+
+LabOps combines two functions:
+
+1. A home/network lab inventory and status dashboard.
+2. A network configuration generator.
+
+The application is for a technical support/network engineer, but it must remain simple to operate, understand, and maintain.
+
+CRITICAL RULE
+
+Do NOT attempt to build an enterprise monitoring platform.
+
+Keep this first version intentionally small and modular.
+
+Before writing any code, create an implementation plan for the Phase 1 application below.
+
+Do NOT implement anything listed under Future Features.
+
+Prefer simple, reliable solutions over complicated architecture.
+
+⸻
+
+NAVIGATION
+
+Create five main areas:
+
+* Dashboard
+* Devices
+* Config Generator
+* Tools
+* Settings
+
+Use a clean left-side navigation menu on desktop.
+
+Use a professional network-management dashboard appearance.
+
+Dark mode should be the default, with optional light mode.
+
+Avoid unnecessary animations and visual clutter.
+
+⸻
+
+DASHBOARD
+
+Display summary cards for:
+
+* Total Devices
+* Online Devices
+* Offline Devices
+* Servers
+* Network Devices
+
+Below the cards, show a Recent Device Status table.
+
+Columns:
+
+* Status
+* Hostname
+* IP Address
+* Device Type
+* Vendor
+* Model
+* Last Checked
+
+Status indicators:
+
+Green = Online
+Red = Offline
+Gray = Unknown
+
+Do NOT create historical graphs yet.
+
+⸻
+
+DEVICE INVENTORY
+
+Store:
+
+* Hostname
+* Management IP Address
+* Device Type
+* Vendor
+* Model
+* Operating System
+* Location
+* Serial Number
+* Description / Notes
+* Monitoring Enabled
+* Last Status
+* Last Checked
+
+Device Types:
+
+* Physical Server
+* Virtual Machine
+* Container
+* Router
+* Switch
+* Firewall
+* Storage
+* Wireless
+* Other
+
+Include common vendors:
+
+* Cisco
+* Juniper
+* Arista
+* Palo Alto
+* Fortinet
+* Dell
+* Supermicro
+* HPE
+* VMware
+* Proxmox
+* Linux
+* Other
+
+Allow users to:
+
+* Add
+* Edit
+* Delete
+* Search
+* Filter
+* Sort devices
+
+Clicking a device should open a Device Detail page.
+
+The Device Detail page should show general information, current status, last checked time, and simple actions for:
+
+* Ping Device
+* Edit Device
+
+Do NOT implement SSH, SNMP, remote CLI access, or API polling yet.
+
+⸻
+
+BASIC MONITORING
+
+Implement simple ICMP ping checks where technically possible.
+
+Devices with Monitoring Enabled can be checked for:
+
+* Online
+* Offline
+* Unknown
+
+Record the Last Checked timestamp.
+
+Do NOT create a complicated monitoring engine or scheduler.
+
+IMPORTANT:
+
+If the Replit-hosted application cannot directly reach private home-lab IP addresses, keep the monitoring functionality modular so a future lightweight local LabOps Collector can perform the checks.
+
+The application must remain fully usable as an inventory/configuration application without local network connectivity.
+
+⸻
+
+CONFIG GENERATOR
+
+Initially support these vendors:
+
+* Cisco IOS / IOS-XE
+* Cisco NX-OS
+* Juniper Junos
+* Arista EOS
+
+Initially support ONLY:
+
+* SNMPv3
+* Syslog
+* NTP
+* NetFlow / IPFIX
+
+Workflow:
+
+1. Select Vendor.
+2. Select Configuration Type.
+3. Display the required fields.
+4. Generate CLI configuration.
+5. Display configuration in a monospace output window.
+
+Provide:
+
+* Copy Configuration
+* Clear
+* Save Configuration
+
+For NetFlow/IPFIX, support fields such as:
+
+* Collector IP
+* UDP Port
+* Source Interface
+* Flow Monitor Name
+* Flow Record Name
+* Flow Exporter Name
+* Ingress/Egress
+
+For SNMPv3, support:
+
+* Username
+* Authentication Protocol
+* Authentication Password
+* Privacy Protocol
+* Privacy Password
+* SNMP Group
+* Read-only / Read-write
+
+NEVER permanently store SNMP passwords.
+
+Below generated configurations provide a short section:
+
+What This Configuration Does
+
+Explain the major configuration sections in straightforward technical language.
+
+⸻
+
+SAVED CONFIGURATIONS
+
+Allow generated configurations to be saved.
+
+Store:
+
+* Configuration Name
+* Vendor
+* Configuration Type
+* Associated Device (optional)
+* Generated Configuration
+* Created Date
+* Notes
+
+Add Saved Configurations inside the Config Generator section.
+
+⸻
+
+TOOLS
+
+For Phase 1 include ONLY:
+
+IP/Subnet Calculator
+
+Input:
+
+* IP Address
+* CIDR Prefix
+
+Display:
+
+* Network Address
+* Broadcast Address
+* Subnet Mask
+* Usable Host Range
+* Number of Hosts
+
+Ping Tool
+
+Allow entry of a hostname or IP address and perform a ping where supported.
+
+Do NOT add port scanning, traceroute, SSH, SNMP walk, packet capture, or other network tools yet.
+
+⸻
+
+SETTINGS
+
+Include only:
+
+* Application Name
+* Default Theme
+* Default Config Generator Vendor
+* Ping Timeout
+
+Avoid unnecessary settings.
+
+⸻
+
+DATABASE
+
+Use Replit PostgreSQL.
+
+Keep the database simple.
+
+Create tables for:
+
+* Devices
+* Saved Configurations
+* Application Settings
+
+Avoid unnecessary tables and complicated relationships.
+
+Design it so monitoring information can be expanded later without redesigning the entire application.
+
+⸻
+
+AUTHENTICATION
+
+This is initially a personal/internal application.
+
+If authentication is necessary, use Replit Auth.
+
+Do NOT build a custom authentication system.
+
+Assume one administrator/user.
+
+Do NOT implement roles or complicated permissions.
+
+⸻
+
+SECURITY
+
+Never hard-code:
+
+* Passwords
+* API keys
+* SNMP credentials
+* Tokens
+
+Use Replit Secrets/environment variables when credentials eventually become necessary.
+
+SNMPv3 passwords entered into Config Generator must NEVER be stored.
+
+Validate user input.
+
+The Ping tool must NOT permit arbitrary shell commands.
+
+⸻
+
+ARCHITECTURE
+
+Keep the architecture simple.
+
+Do NOT use:
+
+* Microservices
+* Kubernetes
+* Redis
+* Message queues
+* Complicated job schedulers
+* Unnecessary background services
+
+Avoid Docker unless actually necessary.
+
+Prefer:
+
+UI
+↓
+Application/API
+↓
+PostgreSQL
+
+Keep integrations modular so they can be added later.
+
+⸻
+
+SAMPLE DATA
+
+Create approximately five clearly identified SAMPLE devices:
+
+* Cisco Catalyst switch
+* Cisco router
+* Dell server
+* Supermicro server
+* Proxmox server
+
+Sample devices must be easy to delete.
+
+⸻
+
+FUTURE FEATURES — DO NOT BUILD THESE
+
+Design for possible future expansion, but DO NOT implement:
+
+* Proxmox API
+* Docker API
+* LXC monitoring
+* Tailscale API
+* SNMP polling
+* Interface monitoring
+* Bandwidth graphs
+* CPU graphs
+* Memory graphs
+* Storage graphs
+* Historical metrics
+* Alerts
+* Email notifications
+* Discord notifications
+* Network topology maps
+* SSH
+* Automated configuration deployment
+* Configuration backups
+* Automatic device discovery
+* AI troubleshooting assistant
+* Packet capture analysis
+* NetFlow collector
+* Syslog server
+* TACACS+
+* AAA generator
+* BGP generator
+* OSPF generator
+* SPAN generator
+* VLAN generator
+* Firewall configuration
+
+⸻
+
+CODE QUALITY
+
+Keep the project understandable.
+
+Use descriptive names.
+
+Keep files reasonably small.
+
+Avoid unnecessary dependencies.
+
+Comment complicated logic.
+
+Do not add libraries simply because they are available.
+
+Prioritize reliability and readability over clever code.
+
+Error messages should be understandable to a network/support engineer.
+
+For example, instead of displaying:
+
+ECONNREFUSED
+
+Display:
+
+“LabOps could not reach this device. Verify that the IP address is correct and that the device is reachable.”
+
+⸻
+
+BEFORE BUILDING
+
+DO NOT WRITE CODE YET.
+
+First:
+
+1. Review all requirements.
+2. Produce a Phase 1 implementation plan.
+3. Identify anything that could unnecessarily complicate the application.
+4. Recommend simpler alternatives where appropriate.
+5. Show the proposed database schema.
+6. Show the proposed application/navigation structure.
+7. List the technologies/dependencies you propose using and WHY each is needed.
+8. Identify any limitations caused by running LabOps on Replit, especially reaching private network devices.
+9. Break development into small milestones.
+10. STOP and wait for my approval.
+
+Do not begin implementation until I explicitly approve the plan.
+
+Do not expand the project’s scope without asking me first.
+
+That’s the one I’d use. Copy the entire block and paste it into Replit Agent. Make sure you’re in Plan mode.
+
+Once Replit responds with its plan, send me what it gives you before you tell it to build. I’ll go through the architecture and dependencies and flag anything that’s making LabOps more complicated than it needs to be.
