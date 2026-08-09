@@ -1,0 +1,67 @@
+Use this prompt with Replit Agent:
+
+Review and correct only the Cisco IOS / IOS-XE SNMPv3 configuration generator.
+
+Current problem:
+The generator is incorrectly producing group commands such as:
+
+snmp-server group LABOPS-GROUP v3 read-only
+
+and
+
+snmp-server group LABOPS-GROUP v3 read-write
+
+Those are not valid ways to define SNMPv3 access on Cisco IOS / IOS-XE.
+
+For Phase 1, simplify the Cisco IOS / IOS-XE SNMPv3 generator as follows:
+
+1. Treat SNMPv3 security level separately from read/write access.
+2. When authentication and privacy are selected, generate the group using the priv security level.
+
+Example structure:
+
+snmp-server group LABOPS-GROUP v3 priv
+
+3. Generate the user command using valid Cisco IOS / IOS-XE syntax.
+
+For SHA with AES-128, the structure should be:
+
+snmp-server user labops-monitor LABOPS-GROUP v3 auth sha <AUTH_PASSWORD> priv aes 128 <PRIV_PASSWORD>
+
+Use the selected username, group name, authentication protocol, privacy protocol, and passwords.
+
+4. Do NOT append read-only or read-write directly to the snmp-server group command.
+5. For Phase 1, remove or disable the Read-write option for Cisco IOS / IOS-XE unless proper SNMP views are implemented.
+
+For now, Cisco IOS / IOS-XE SNMPv3 should be treated as monitoring/read-only configuration.
+
+Do not introduce SNMP write access, MIB write views, or additional SNMP complexity during Phase 1.
+
+6. Preserve the existing security behavior:
+
+* Authentication passwords must never be stored.
+* Privacy passwords must never be stored.
+* Saved configurations must replace them with exactly:
+
+<AUTH_PASSWORD>
+
+and
+
+<PRIV_PASSWORD>
+
+7. Do not change Juniper, Arista, Cisco NX-OS, NetFlow/IPFIX, Syslog, NTP, Devices, Dashboard, Tools, Settings, or any unrelated functionality.
+8. After making the change:
+
+* Run the frontend type check.
+* Run the backend type check.
+* Start the preview if necessary.
+* Generate one Cisco IOS / IOS-XE SNMPv3 configuration using SHA and AES-128.
+* Show me the exact generated CLI for review.
+
+Do not add new features.
+Do not expand Phase 1 scope.
+Stop after the corrected Cisco IOS / IOS-XE SNMPv3 output is ready for review.
+
+That should keep Agent tightly focused on the problem instead of letting it redesign the whole generator.
+
+Once it gives you the corrected CLI, send me the output and I’ll validate it before we move on to NetFlow/IPFIX.
