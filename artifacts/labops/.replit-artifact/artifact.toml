@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "LabOps"
+description = "A focused home and network lab operations workspace for device inventory, manual reachability checks, network configuration generation, saved configurations, and practical IPv4 tools."
+version = "1.0.0"
+id = "artifacts/labops"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26241
+
+[services.development]
+run = "pnpm --filter @workspace/labops run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/labops", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/labops/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26241"
+BASE_PATH = "/"

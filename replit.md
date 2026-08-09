@@ -1,10 +1,11 @@
-# [Project name]
+# LabOps
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+LabOps is a dark-first home and network lab console for device inventory, manual reachability checks, network configuration generation, saved configurations, and practical IPv4 tools.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/labops run dev` — run the LabOps frontend
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -22,23 +23,40 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/labops/` — deployable React/Vite frontend artifact and visual theme
+- `artifacts/labops/src/App.tsx` — LabOps routes and Phase 1 page components
+- `artifacts/labops/src/lib/api.ts` — direct frontend API client and response types
+- `artifacts/api-server/src/routes/labops.ts` — internal Express API routes, validation, ping isolation, and SNMP redaction
+- `lib/db/src/schema/` — Drizzle schemas for devices, saved configurations, and application settings
+- `artifacts/labops/.replit-artifact/artifact.toml` — LabOps artifact registration and preview service
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- LabOps uses a straightforward internal Express router mounted at `/api`; it intentionally does not expand the existing OpenAPI contract for this focused product.
+- Phase 1 performs reachability checks only when explicitly requested. There is no scheduler, polling engine, queue, or collector.
+- Subnet calculation and configuration generation remain client-side; saved configurations and device records use PostgreSQL through Drizzle.
+- SNMPv3 credentials are accepted transiently for generation but are redacted server-side before a saved configuration is persisted.
+- Authentication is not part of the initial release. If it becomes necessary, use Replit Auth rather than custom authentication.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Dashboard with device counts and recent status
+- Device inventory with add, edit, delete, search, filtering, and manual ping
+- Configuration generator for Cisco IOS / IOS-XE, Cisco NX-OS, Juniper Junos, and Arista EOS
+- Supported output types: SNMPv3, Syslog, NTP, and NetFlow / IPFIX
+- Saved configuration archive with SNMPv3 password placeholders
+- IPv4 subnet calculator and manual ping tool
+- Minimal application, theme, vendor, and ping timeout settings
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Keep the product simple and modular; do not expand Phase 1 into an enterprise monitoring platform.
+- Keep the default experience dark-first and operationally dense but readable.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The API server's ping execution is intentionally isolated in one function so a future local collector can replace it. Some hosted containers may not have permission to execute ICMP, in which case the result is explicitly offline rather than silently mocked.
+- Restart both `artifacts/api-server: API Server` and `artifacts/labops: web` after server or artifact configuration changes.
 
 ## Pointers
 

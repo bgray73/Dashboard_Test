@@ -1,0 +1,515 @@
+import { Router, type IRouter } from "express";
+import { desc, eq } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import {
+  applicationSettingsTable,
+  db,
+  devicesTable,
+  savedConfigurationsTable,
+} from "@workspace/db";
+
+const execFileAsync = promisify(execFile);
+const router: IRouter = Router();
+
+const DEVICE_TYPES = [
+  "Physical Server",
+  "Virtual Machine",
+  "Container",
+  "Router",
+  "Switch",
+  "Firewall",
+  "Storage",
+  "Wireless",
+  "Other",
+] as const;
+const VENDORS = [
+  "Cisco",
+  "Juniper",
+  "Arista",
+  "Palo Alto",
+  "Fortinet",
+  "Dell",
+  "Supermicro",
+  "HPE",
+  "VMware",
+  "Proxmox",
+  "Linux",
+  "Other",
+] as const;
+const CONFIG_VENDORS = [
+  "Cisco IOS / IOS-XE",
+  "Cisco NX-OS",
+  "Juniper Junos",
+  "Arista EOS",
+] as const;
+const CONFIG_TYPES = ["SNMPv3", "Syslog", "NTP", "NetFlow / IPFIX"] as const;
+const STATUSES = ["online", "offline", "unknown"] as const;
+
+type DeviceInput = {
+  hostname: string;
+  managementIp: string;
+  deviceType: string;
+  vendor: string;
+  model?: string;
+  operatingSystem?: string;
+  location?: string;
+  serialNumber?: string;
+  notes?: string;
+  monitoringEnabled?: boolean;
+};
+
+type SavedConfigurationInput = {
+  name: string;
+  vendor: string;
+  configurationType: string;
+  associatedDeviceId?: number | null;
+  generatedConfiguration: string;
+  notes?: string;
+  authPassword?: string;
+  privacyPassword?: string;
+};
+
+let setupPromise: Promise<void> | undefined;
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readId(value: unknown): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
+}
+
+function isIpv4OrHostname(value: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,252}$/.test(value);
+}
+
+function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: string } {
+  if (!body || typeof body !== "object") return { error: "Device details are required." };
+  const input = body as Record<string, unknown>;
+  const hostname = readString(input.hostname)?.trim();
+  const managementIp = readString(input.managementIp)?.trim();
+  const deviceType = readString(input.deviceType);
+  const vendor = readString(input.vendor);
+  if (!hostname || !managementIp || !deviceType || !vendor) {
+    return { error: "Hostname, management IP, device type, and vendor are required." };
+  }
+  if (!isIpv4OrHostname(managementIp)) {
+    return { error: "Enter a valid hostname or management IP address." };
+  }
+  if (!DEVICE_TYPES.includes(deviceType as (typeof DEVICE_TYPES)[number])) {
+    return { error: "Select a valid device type." };
+  }
+  if (!VENDORS.includes(vendor as (typeof VENDORS)[number])) {
+    return { error: "Select a valid vendor." };
+  }
+  if (input.monitoringEnabled !== undefined && typeof input.monitoringEnabled !== "boolean") {
+    return { error: "Monitoring Enabled must be true or false." };
+  }
+  return {
+    data: {
+      hostname,
+      managementIp,
+      deviceType,
+      vendor,
+      model: readString(input.model)?.trim() ?? "",
+      operatingSystem: readString(input.operatingSystem)?.trim() ?? "",
+      location: readString(input.location)?.trim() ?? "",
+      serialNumber: readString(input.serialNumber)?.trim() ?? "",
+      notes: readString(input.notes)?.trim() ?? "",
+      monitoringEnabled: input.monitoringEnabled === true,
+    },
+  };
+}
+
+function sanitizeConfiguration(input: SavedConfigurationInput): string {
+  let configuration = input.generatedConfiguration;
+  if (input.authPassword) configuration = configuration.split(input.authPassword).join("<AUTH_PASSWORD>");
+  if (input.privacyPassword) configuration = configuration.split(input.privacyPassword).join("<PRIV_PASSWORD>");
+  configuration = configuration
+    .replace(/(<AUTH_PASSWORD>|<AUTH[_ -]?PASSWORD>|AUTH_PASSWORD|\[AUTH_PASSWORD\])/gi, "<AUTH_PASSWORD>")
+    .replace(/(<PRIV_PASSWORD>|<PRIV[_ -]?PASSWORD>|PRIV_PASSWORD|\[PRIV_PASSWORD\])/gi, "<PRIV_PASSWORD>");
+
+  if (input.configurationType === "SNMPv3") {
+    configuration = configuration
+      .replace(/(authentication(?:-password| password)?\s+)(?!<AUTH_PASSWORD>|\[AUTH_PASSWORD\])\S+/gi, "$1<AUTH_PASSWORD>")
+      .replace(/(privacy(?:-password| password)?\s+)(?!<PRIV_PASSWORD>|\[PRIV_PASSWORD\])\S+/gi, "$1<PRIV_PASSWORD>");
+  }
+  return configuration;
+}
+
+async function ensureSetup(): Promise<void> {
+  if (!setupPromise) {
+    setupPromise = (async () => {
+      const [existingSettings] = await db.select({ id: applicationSettingsTable.id }).from(applicationSettingsTable).limit(1);
+      if (!existingSettings) {
+        await db.insert(applicationSettingsTable).values({}).execute();
+      }
+
+      const existingSamples = await db
+        .select({ id: devicesTable.id })
+        .from(devicesTable)
+        .where(eq(devicesTable.isSample, true))
+        .limit(1);
+      if (existingSamples.length > 0) return;
+
+      await db.insert(devicesTable).values([
+        {
+          hostname: "core-sw-01",
+          managementIp: "192.168.1.2",
+          deviceType: "Switch",
+          vendor: "Cisco",
+          model: "Catalyst 9300",
+          operatingSystem: "IOS-XE",
+          location: "Rack A · U24",
+          notes: "Sample device — safe to delete.",
+          monitoringEnabled: true,
+          lastStatus: "unknown",
+          isSample: true,
+        },
+        {
+          hostname: "edge-rtr-01",
+          managementIp: "192.168.1.1",
+          deviceType: "Router",
+          vendor: "Cisco",
+          model: "ISR 4331",
+          operatingSystem: "IOS-XE",
+          location: "Rack A · U01",
+          notes: "Sample device — safe to delete.",
+          monitoringEnabled: true,
+          lastStatus: "unknown",
+          isSample: true,
+        },
+        {
+          hostname: "compute-dell-01",
+          managementIp: "192.168.1.20",
+          deviceType: "Physical Server",
+          vendor: "Dell",
+          model: "PowerEdge R640",
+          operatingSystem: "Ubuntu Server 24.04",
+          location: "Rack B · U10",
+          notes: "Sample device — safe to delete.",
+          monitoringEnabled: false,
+          lastStatus: "unknown",
+          isSample: true,
+        },
+        {
+          hostname: "compute-sm-01",
+          managementIp: "192.168.1.21",
+          deviceType: "Physical Server",
+          vendor: "Supermicro",
+          model: "SYS-5019D",
+          operatingSystem: "Debian 12",
+          location: "Rack B · U12",
+          notes: "Sample device — safe to delete.",
+          monitoringEnabled: false,
+          lastStatus: "unknown",
+          isSample: true,
+        },
+        {
+          hostname: "pve-01",
+          managementIp: "192.168.1.30",
+          deviceType: "Physical Server",
+          vendor: "Proxmox",
+          model: "ProLiant DL360",
+          operatingSystem: "Proxmox VE 8",
+          location: "Rack B · U20",
+          notes: "Sample device — safe to delete.",
+          monitoringEnabled: true,
+          lastStatus: "unknown",
+          isSample: true,
+        },
+      ]);
+    })().catch((error) => {
+      setupPromise = undefined;
+      throw error;
+    });
+  }
+  await setupPromise;
+}
+
+async function performPing(target: string, timeoutSeconds: number): Promise<{ status: string; latencyMs: number | null; message: string }> {
+  if (!isIpv4OrHostname(target)) {
+    return { status: "unknown", latencyMs: null, message: "Enter a valid hostname or IP address." };
+  }
+  const started = Date.now();
+  try {
+    await execFileAsync("ping", ["-4", "-c", "1", "-W", String(Math.max(1, Math.min(30, timeoutSeconds))), target], {
+      timeout: Math.max(1000, Math.min(30000, timeoutSeconds * 1000 + 500)),
+      windowsHide: true,
+    });
+    return {
+      status: "online",
+      latencyMs: Date.now() - started,
+      message: "LabOps reached the device successfully.",
+    };
+  } catch (error) {
+    const details = error as { stderr?: string; message?: string };
+    const diagnostic = `${details.stderr ?? ""} ${details.message ?? ""}`;
+    if (/operation not permitted|permission denied|address family not supported|missing cap_net_raw/i.test(diagnostic)) {
+      return {
+        status: "unknown",
+        latencyMs: null,
+        message: "ICMP checks are unavailable in this hosted environment. Run the check from a local collector with network permissions.",
+      };
+    }
+    return {
+      status: "offline",
+      latencyMs: null,
+      message: "LabOps could not reach this device. It may be on a private network or the address may be incorrect.",
+    };
+  }
+}
+
+async function getSettings() {
+  const [settings] = await db.select().from(applicationSettingsTable).limit(1);
+  return settings ?? {
+    id: 0,
+    applicationName: "LabOps",
+    defaultTheme: "dark",
+    defaultConfigVendor: CONFIG_VENDORS[0],
+    pingTimeoutSeconds: 3,
+    updatedAt: new Date(),
+  };
+}
+
+router.get("/dashboard/summary", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const devices = await db.select().from(devicesTable);
+  res.json({
+    totalDevices: devices.length,
+    onlineDevices: devices.filter((device) => device.lastStatus === "online").length,
+    offlineDevices: devices.filter((device) => device.lastStatus === "offline").length,
+    unknownDevices: devices.filter((device) => !STATUSES.includes(device.lastStatus as (typeof STATUSES)[number]) || device.lastStatus === "unknown").length,
+    servers: devices.filter((device) => ["Physical Server", "Virtual Machine", "Container"].includes(device.deviceType)).length,
+    networkDevices: devices.filter((device) => ["Router", "Switch", "Firewall", "Wireless"].includes(device.deviceType)).length,
+  });
+});
+
+router.get("/dashboard/recent-status", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.updatedAt));
+  res.json(devices.slice(0, 12));
+});
+
+router.post("/dashboard/check-monitored", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const settings = await getSettings();
+  const devices = await db.select().from(devicesTable).where(eq(devicesTable.monitoringEnabled, true));
+  const results = [];
+  for (const device of devices) {
+    const result = await performPing(device.managementIp, settings.pingTimeoutSeconds);
+    const [updated] = await db.update(devicesTable).set({
+      lastStatus: result.status,
+      lastCheckedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(devicesTable.id, device.id)).returning();
+    results.push({ device: updated, ...result });
+  }
+  res.json({ checked: results.length, results });
+});
+
+router.get("/devices", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const search = readString(req.query.search)?.trim().toLowerCase() ?? "";
+  const status = readString(req.query.status);
+  const deviceType = readString(req.query.deviceType);
+  const vendor = readString(req.query.vendor);
+  const sort = readString(req.query.sort) ?? "hostname";
+  const direction = readString(req.query.direction) === "desc" ? -1 : 1;
+  const devices = await db.select().from(devicesTable);
+  const filtered = devices.filter((device) => {
+    const searchable = [device.hostname, device.managementIp, device.vendor, device.model, device.location, device.notes].join(" ").toLowerCase();
+    return (!search || searchable.includes(search))
+      && (!status || device.lastStatus === status)
+      && (!deviceType || device.deviceType === deviceType)
+      && (!vendor || device.vendor === vendor);
+  });
+  filtered.sort((a, b) => {
+    const left = String((a as Record<string, unknown>)[sort] ?? a.hostname);
+    const right = String((b as Record<string, unknown>)[sort] ?? b.hostname);
+    return left.localeCompare(right) * direction;
+  });
+  res.json(filtered);
+});
+
+router.post("/devices", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const parsed = validateDeviceInput(req.body);
+  if (!parsed.data) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const [device] = await db.insert(devicesTable).values(parsed.data).returning();
+  res.status(201).json(device);
+});
+
+router.get("/devices/:id", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Device ID must be a positive number." });
+    return;
+  }
+  const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, id));
+  if (!device) {
+    res.status(404).json({ error: "Device not found." });
+    return;
+  }
+  res.json(device);
+});
+
+router.patch("/devices/:id", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Device ID must be a positive number." });
+    return;
+  }
+  const parsed = validateDeviceInput(req.body);
+  if (!parsed.data) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const [device] = await db.update(devicesTable).set({ ...parsed.data, updatedAt: new Date() }).where(eq(devicesTable.id, id)).returning();
+  if (!device) {
+    res.status(404).json({ error: "Device not found." });
+    return;
+  }
+  res.json(device);
+});
+
+router.delete("/devices/:id", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Device ID must be a positive number." });
+    return;
+  }
+  await db.update(savedConfigurationsTable).set({ associatedDeviceId: null, updatedAt: new Date() }).where(eq(savedConfigurationsTable.associatedDeviceId, id));
+  const [device] = await db.delete(devicesTable).where(eq(devicesTable.id, id)).returning();
+  if (!device) {
+    res.status(404).json({ error: "Device not found." });
+    return;
+  }
+  res.status(204).send();
+});
+
+router.post("/devices/:id/ping", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Device ID must be a positive number." });
+    return;
+  }
+  const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, id));
+  if (!device) {
+    res.status(404).json({ error: "Device not found." });
+    return;
+  }
+  const settings = await getSettings();
+  const result = await performPing(device.managementIp, settings.pingTimeoutSeconds);
+  const [updated] = await db.update(devicesTable).set({
+    lastStatus: result.status,
+    lastCheckedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(devicesTable.id, id)).returning();
+  res.json({ device: updated, ...result });
+});
+
+router.get("/saved-configurations", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  res.json(await db.select().from(savedConfigurationsTable).orderBy(desc(savedConfigurationsTable.createdAt)));
+});
+
+router.post("/saved-configurations", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const input = req.body as Partial<SavedConfigurationInput>;
+  if (!input.name?.trim() || !CONFIG_VENDORS.includes(input.vendor as (typeof CONFIG_VENDORS)[number]) || !CONFIG_TYPES.includes(input.configurationType as (typeof CONFIG_TYPES)[number]) || !input.generatedConfiguration?.trim()) {
+    res.status(400).json({ error: "Name, vendor, configuration type, and generated configuration are required." });
+    return;
+  }
+  if (input.associatedDeviceId !== undefined && input.associatedDeviceId !== null && (!Number.isInteger(Number(input.associatedDeviceId)) || Number(input.associatedDeviceId) <= 0)) {
+    res.status(400).json({ error: "Associated device must be valid." });
+    return;
+  }
+  const name = input.name.trim();
+  const vendor = input.vendor as string;
+  const configurationType = input.configurationType as string;
+  const generatedInput = input.generatedConfiguration;
+  const generatedConfiguration = sanitizeConfiguration({
+    name,
+    vendor,
+    configurationType,
+    generatedConfiguration: generatedInput,
+    notes: input.notes,
+    authPassword: input.authPassword,
+    privacyPassword: input.privacyPassword,
+  });
+  const [saved] = await db.insert(savedConfigurationsTable).values({
+    name,
+    vendor,
+    configurationType,
+    associatedDeviceId: input.associatedDeviceId == null ? null : Number(input.associatedDeviceId),
+    generatedConfiguration,
+    notes: input.notes?.trim() ?? "",
+  }).returning();
+  res.status(201).json(saved);
+});
+
+router.delete("/saved-configurations/:id", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Saved configuration ID must be a positive number." });
+    return;
+  }
+  const [saved] = await db.delete(savedConfigurationsTable).where(eq(savedConfigurationsTable.id, id)).returning();
+  if (!saved) {
+    res.status(404).json({ error: "Saved configuration not found." });
+    return;
+  }
+  res.status(204).send();
+});
+
+router.get("/settings", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  res.json(await getSettings());
+});
+
+router.patch("/settings", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const current = await getSettings();
+  const input = req.body as Record<string, unknown>;
+  const applicationName = readString(input.applicationName)?.trim() || current.applicationName;
+  const defaultTheme = readString(input.defaultTheme) ?? current.defaultTheme;
+  const defaultConfigVendor = readString(input.defaultConfigVendor) ?? current.defaultConfigVendor;
+  const pingTimeoutSeconds = Number(input.pingTimeoutSeconds ?? current.pingTimeoutSeconds);
+  if (!["dark", "light"].includes(defaultTheme) || !CONFIG_VENDORS.includes(defaultConfigVendor as (typeof CONFIG_VENDORS)[number]) || !Number.isInteger(pingTimeoutSeconds) || pingTimeoutSeconds < 1 || pingTimeoutSeconds > 30) {
+    res.status(400).json({ error: "Check the theme, default vendor, and ping timeout values." });
+    return;
+  }
+  const [settings] = await db.update(applicationSettingsTable).set({
+    applicationName,
+    defaultTheme,
+    defaultConfigVendor,
+    pingTimeoutSeconds,
+    updatedAt: new Date(),
+  }).where(eq(applicationSettingsTable.id, current.id)).returning();
+  res.json(settings);
+});
+
+router.post("/tools/ping", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const target = readString((req.body as Record<string, unknown> | undefined)?.target)?.trim();
+  if (!target) {
+    res.status(400).json({ error: "Enter a hostname or IP address." });
+    return;
+  }
+  const settings = await getSettings();
+  res.json({ target, ...(await performPing(target, settings.pingTimeoutSeconds)) });
+});
+
+export default router;

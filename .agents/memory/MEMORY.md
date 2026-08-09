@@ -1,0 +1,1 @@
+- [Hosted ICMP behavior](ping-hosting.md) — hosted API containers may lack ICMP socket permissions; report checks as unknown and use a local collector for real reachability.
