@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { pingArguments } from "./reachability";
 import { availabilityForWindow, incidentDurationSeconds } from "./availability-policy";
+import { isAllowedWebhookUrl } from "./webhook-policy";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -69,5 +70,18 @@ describe("availability and incident policy", () => {
   it("calculates a non-negative incident duration", () => {
     assert.equal(incidentDurationSeconds(new Date("2026-08-10T11:00:00Z"), now), 3600);
     assert.equal(incidentDurationSeconds(now, new Date("2026-08-10T11:00:00Z")), 0);
+  });
+});
+
+describe("webhook URL policy", () => {
+  it("allows HTTPS and local HTTP development endpoints", () => {
+    assert.equal(isAllowedWebhookUrl("https://hooks.example.com/labops"), true);
+    assert.equal(isAllowedWebhookUrl("http://localhost:9000/hook"), true);
+  });
+
+  it("rejects insecure remote and non-HTTP destinations", () => {
+    assert.equal(isAllowedWebhookUrl("http://example.com/hook"), false);
+    assert.equal(isAllowedWebhookUrl("file:///tmp/hook"), false);
+    assert.equal(isAllowedWebhookUrl("not-a-url"), false);
   });
 });

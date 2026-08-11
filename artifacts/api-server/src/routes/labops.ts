@@ -6,11 +6,14 @@ import {
   devicesTable,
   monitoringHistoryTable,
   monitoringIncidentsTable,
+  notificationDeliveriesTable,
   savedConfigurationsTable,
 } from "@workspace/db";
 import { isIpv4OrHostname, performPing } from "../lib/reachability";
 import { recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monitoring";
 import { availabilityForWindow } from "../lib/availability-policy";
+import { isAllowedWebhookUrl } from "../lib/webhook-policy";
+import { sendWebhook } from "../lib/webhook-notifications";
 
 const router: IRouter = Router();
 
@@ -247,6 +250,8 @@ async function getSettings() {
     defaultTheme: "dark",
     defaultConfigVendor: CONFIG_VENDORS[0],
     pingTimeoutSeconds: 3,
+    webhookEnabled: false,
+    webhookUrl: "",
     updatedAt: new Date(),
   };
 }
@@ -498,8 +503,14 @@ router.patch("/settings", async (req, res): Promise<void> => {
   const defaultTheme = readString(input.defaultTheme) ?? current.defaultTheme;
   const defaultConfigVendor = readString(input.defaultConfigVendor) ?? current.defaultConfigVendor;
   const pingTimeoutSeconds = Number(input.pingTimeoutSeconds ?? current.pingTimeoutSeconds);
+  const webhookEnabled = input.webhookEnabled === undefined ? current.webhookEnabled : input.webhookEnabled === true;
+  const webhookUrl = readString(input.webhookUrl)?.trim() ?? current.webhookUrl;
   if (!["dark", "light"].includes(defaultTheme) || !CONFIG_VENDORS.includes(defaultConfigVendor as (typeof CONFIG_VENDORS)[number]) || !Number.isInteger(pingTimeoutSeconds) || pingTimeoutSeconds < 1 || pingTimeoutSeconds > 30) {
     res.status(400).json({ error: "Check the theme, default vendor, and ping timeout values." });
+    return;
+  }
+  if (webhookEnabled && !isAllowedWebhookUrl(webhookUrl)) {
+    res.status(400).json({ error: "Webhook URL must use HTTPS. Localhost HTTP is allowed for development." });
     return;
   }
   const [settings] = await db.update(applicationSettingsTable).set({
@@ -507,9 +518,30 @@ router.patch("/settings", async (req, res): Promise<void> => {
     defaultTheme,
     defaultConfigVendor,
     pingTimeoutSeconds,
+    webhookEnabled,
+    webhookUrl,
     updatedAt: new Date(),
   }).where(eq(applicationSettingsTable.id, current.id)).returning();
   res.json(settings);
+});
+
+router.get("/notifications/deliveries", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  res.json(await db.select().from(notificationDeliveriesTable).orderBy(desc(notificationDeliveriesTable.attemptedAt)).limit(100));
+});
+
+router.post("/notifications/test", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const settings = await getSettings();
+  if (!settings.webhookEnabled || !settings.webhookUrl) {
+    res.status(400).json({ error: "Enable and save a webhook before sending a test." });
+    return;
+  }
+  const delivery = await sendWebhook({
+    event: "webhook.test", occurredAt: new Date().toISOString(),
+    device: { id: 0, hostname: "labops-test", managementIp: "127.0.0.1" },
+  });
+  res.status(delivery?.status === "delivered" ? 200 : 502).json(delivery);
 });
 
 router.post("/tools/ping", async (req, res): Promise<void> => {

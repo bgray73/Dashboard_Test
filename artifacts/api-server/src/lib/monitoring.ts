@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { performPing } from "./reachability";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { incidentDurationSeconds } from "./availability-policy";
+import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
 
 const RETENTION_DAYS = Math.max(1, Number(process.env.MONITORING_RETENTION_DAYS) || 30);
 let polling = false;
@@ -12,7 +13,8 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
   const result = await performPing(device.managementIp, timeoutSeconds);
   const { consecutiveFailures: failures, effectiveStatus } = calculateMonitoringState(result.status, device.consecutiveFailures);
   const checkedAt = new Date();
-  const [updated] = await db.transaction(async (tx) => {
+  const { updated, notifications } = await db.transaction(async (tx) => {
+    const notifications: Array<{ payload: WebhookPayload; incidentId: number }> = [];
     const rows = await tx.update(devicesTable).set({
       lastStatus: effectiveStatus, lastCheckedAt: checkedAt, lastLatencyMs: result.latencyMs,
       consecutiveFailures: failures, updatedAt: checkedAt,
@@ -32,24 +34,36 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
           errorMessage: result.message,
         }).where(eq(monitoringIncidentsTable.id, incident.id));
       } else {
-        await tx.insert(monitoringIncidentsTable).values({
+        const [created] = await tx.insert(monitoringIncidentsTable).values({
           deviceId: device.id, startedAt: checkedAt, lastFailureAt: checkedAt,
           peakFailures: failures, errorMessage: result.message,
-        });
+        }).returning();
+        notifications.push({ incidentId: created.id, payload: {
+          event: "incident.opened", occurredAt: checkedAt.toISOString(), incidentId: created.id,
+          device: { id: device.id, hostname: device.hostname, managementIp: device.managementIp },
+          incident: { status: created.status, startedAt: created.startedAt.toISOString(), peakFailures: created.peakFailures, errorMessage: created.errorMessage },
+        } });
       }
     } else if (effectiveStatus === "online") {
       const openIncidents = await tx.select().from(monitoringIncidentsTable)
         .where(and(eq(monitoringIncidentsTable.deviceId, device.id), eq(monitoringIncidentsTable.status, "open")));
       for (const incident of openIncidents) {
+        const durationSeconds = incidentDurationSeconds(incident.startedAt, checkedAt);
         await tx.update(monitoringIncidentsTable).set({
           status: "resolved", resolvedAt: checkedAt,
-          durationSeconds: incidentDurationSeconds(incident.startedAt, checkedAt),
+          durationSeconds,
           resolutionReason: "recovered",
         }).where(eq(monitoringIncidentsTable.id, incident.id));
+        notifications.push({ incidentId: incident.id, payload: {
+          event: "incident.resolved", occurredAt: checkedAt.toISOString(), incidentId: incident.id,
+          device: { id: device.id, hostname: device.hostname, managementIp: device.managementIp },
+          incident: { status: "resolved", startedAt: incident.startedAt.toISOString(), resolvedAt: checkedAt.toISOString(), durationSeconds, peakFailures: incident.peakFailures, errorMessage: incident.errorMessage, resolutionReason: "recovered" },
+        } });
       }
     }
-    return rows;
+    return { updated: rows[0], notifications };
   });
+  for (const notification of notifications) void sendWebhook(notification.payload, notification.incidentId).catch((error) => logger.warn({ err: error }, "Unable to record webhook delivery"));
   return { device: updated, ...result, status: effectiveStatus };
 }
 

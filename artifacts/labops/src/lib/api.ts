@@ -10,7 +10,8 @@ export type MonitoringIncident = { id: number; deviceId: number; startedAt: stri
 export type AvailabilityMetric = { percentage: number | null; onlineChecks: number; offlineChecks: number; observedChecks: number };
 export type AvailabilityWindows = Record<"24h" | "7d" | "30d", AvailabilityMetric>;
 export type SavedConfiguration = { id: number; name: string; vendor: string; configurationType: string; associatedDeviceId?: number; generatedConfiguration: string; notes?: string; createdAt?: string; updatedAt?: string; authPassword?: string; privacyPassword?: string };
-export type Settings = { applicationName: string; defaultTheme: string; defaultConfigVendor: string; pingTimeoutSeconds: number };
+export type Settings = { applicationName: string; defaultTheme: string; defaultConfigVendor: string; pingTimeoutSeconds: number; webhookEnabled: boolean; webhookUrl: string };
+export type NotificationDelivery = { id: number; incidentId?: number | null; eventType: string; destination: string; status: string; responseStatus?: number | null; errorMessage?: string | null; attemptedAt: string };
 export type PingResult = { status: string; latencyMs: number | null; message: string; target?: string; device?: Device };
 const base = '/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -36,5 +37,7 @@ export const api = {
   deleteConfig: (id: number) => request<void>(`/saved-configurations/${id}`, { method: 'DELETE' }),
   settings: () => request<Settings>('/settings'),
   updateSettings: (data: Partial<Settings>) => request<Settings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  notificationDeliveries: () => request<NotificationDelivery[]>('/notifications/deliveries'),
+  testWebhook: () => request<NotificationDelivery>('/notifications/test', { method: 'POST' }),
   ping: (data: { target: string }) => request<PingResult>('/tools/ping', { method: 'POST', body: JSON.stringify(data) }),
 };
