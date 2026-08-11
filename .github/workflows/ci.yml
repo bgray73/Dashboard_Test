@@ -21,3 +21,6 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run build
+        env:
+          PORT: 5000
+          BASE_PATH: /
