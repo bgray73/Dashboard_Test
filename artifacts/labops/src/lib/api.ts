@@ -11,7 +11,7 @@ export type AvailabilityMetric = { percentage: number | null; onlineChecks: numb
 export type AvailabilityWindows = Record<"24h" | "7d" | "30d", AvailabilityMetric>;
 export type SavedConfiguration = { id: number; name: string; vendor: string; configurationType: string; associatedDeviceId?: number; generatedConfiguration: string; notes?: string; createdAt?: string; updatedAt?: string; authPassword?: string; privacyPassword?: string };
 export type Settings = { applicationName: string; defaultTheme: string; defaultConfigVendor: string; pingTimeoutSeconds: number; webhookEnabled: boolean; webhookUrl: string };
-export type NotificationDelivery = { id: number; incidentId?: number | null; eventType: string; destination: string; status: string; responseStatus?: number | null; errorMessage?: string | null; attemptedAt: string };
+export type NotificationDelivery = { id: number; incidentId?: number | null; eventType: string; destination: string; status: string; responseStatus?: number | null; errorMessage?: string | null; attemptCount: number; nextAttemptAt?: string | null; attemptedAt: string; deliveredAt?: string | null };
 export type PingResult = { status: string; latencyMs: number | null; message: string; target?: string; device?: Device };
 const base = '/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -39,5 +39,6 @@ export const api = {
   updateSettings: (data: Partial<Settings>) => request<Settings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
   notificationDeliveries: () => request<NotificationDelivery[]>('/notifications/deliveries'),
   testWebhook: () => request<NotificationDelivery>('/notifications/test', { method: 'POST' }),
+  retryWebhook: (id: number) => request<NotificationDelivery>(`/notifications/deliveries/${id}/retry`, { method: 'POST' }),
   ping: (data: { target: string }) => request<PingResult>('/tools/ping', { method: 'POST', body: JSON.stringify(data) }),
 };
