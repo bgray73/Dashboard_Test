@@ -13,7 +13,7 @@ import { isIpv4OrHostname, performPing } from "../lib/reachability";
 import { recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monitoring";
 import { availabilityForWindow } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
-import { sendWebhook } from "../lib/webhook-notifications";
+import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
 
 const router: IRouter = Router();
 
@@ -541,7 +541,22 @@ router.post("/notifications/test", async (_req, res): Promise<void> => {
     event: "webhook.test", occurredAt: new Date().toISOString(),
     device: { id: 0, hostname: "labops-test", managementIp: "127.0.0.1" },
   });
-  res.status(delivery?.status === "delivered" ? 200 : 502).json(delivery);
+  res.status(delivery?.status === "delivered" ? 200 : 202).json(delivery);
+});
+
+router.post("/notifications/deliveries/:id/retry", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const id = readId(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: "Delivery ID must be a positive number." });
+    return;
+  }
+  try {
+    res.json(await attemptWebhookDelivery(id));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to retry webhook delivery.";
+    res.status(message === "Webhook delivery not found." ? 404 : 400).json({ error: message });
+  }
 });
 
 router.post("/tools/ping", async (req, res): Promise<void> => {
