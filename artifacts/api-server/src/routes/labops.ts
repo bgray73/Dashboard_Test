@@ -1,14 +1,16 @@
 import { Router, type IRouter } from "express";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import {
   applicationSettingsTable,
   db,
   devicesTable,
   monitoringHistoryTable,
+  monitoringIncidentsTable,
   savedConfigurationsTable,
 } from "@workspace/db";
 import { isIpv4OrHostname, performPing } from "../lib/reachability";
-import { recordDeviceCheck } from "../lib/monitoring";
+import { recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monitoring";
+import { availabilityForWindow } from "../lib/availability-policy";
 
 const router: IRouter = Router();
 
@@ -57,6 +59,7 @@ type DeviceInput = {
   serialNumber?: string;
   notes?: string;
   monitoringEnabled?: boolean;
+  maintenanceMode?: boolean;
   monitoringIntervalSeconds?: number;
 };
 
@@ -105,6 +108,9 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
   if (input.monitoringEnabled !== undefined && typeof input.monitoringEnabled !== "boolean") {
     return { error: "Monitoring Enabled must be true or false." };
   }
+  if (input.maintenanceMode !== undefined && typeof input.maintenanceMode !== "boolean") {
+    return { error: "Maintenance Mode must be true or false." };
+  }
   const monitoringIntervalSeconds = Number(input.monitoringIntervalSeconds ?? 60);
   if (!Number.isInteger(monitoringIntervalSeconds) || monitoringIntervalSeconds < 30 || monitoringIntervalSeconds > 86400) {
     return { error: "Polling interval must be between 30 and 86400 seconds." };
@@ -121,6 +127,7 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
       serialNumber: readString(input.serialNumber)?.trim() ?? "",
       notes: readString(input.notes)?.trim() ?? "",
       monitoringEnabled: input.monitoringEnabled === true,
+      maintenanceMode: input.maintenanceMode === true,
       monitoringIntervalSeconds,
     },
   };
@@ -247,6 +254,14 @@ async function getSettings() {
 router.get("/dashboard/summary", async (_req, res): Promise<void> => {
   await ensureSetup();
   const devices = await db.select().from(devicesTable);
+  const dayAgo = new Date(Date.now() - 86_400_000);
+  const [recentHistory, openIncidents] = await Promise.all([
+    db.select({ status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt })
+      .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, dayAgo)),
+    db.select({ id: monitoringIncidentsTable.id }).from(monitoringIncidentsTable)
+      .where(eq(monitoringIncidentsTable.status, "open")),
+  ]);
+  const availability24h = availabilityForWindow(recentHistory, dayAgo);
   res.json({
     totalDevices: devices.length,
     onlineDevices: devices.filter((device) => device.lastStatus === "online").length,
@@ -254,6 +269,8 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     unknownDevices: devices.filter((device) => !STATUSES.includes(device.lastStatus as (typeof STATUSES)[number]) || device.lastStatus === "unknown").length,
     servers: devices.filter((device) => ["Physical Server", "Virtual Machine", "Container"].includes(device.deviceType)).length,
     networkDevices: devices.filter((device) => ["Router", "Switch", "Firewall", "Wireless"].includes(device.deviceType)).length,
+    openIncidents: openIncidents.length,
+    availability24h: availability24h.percentage,
   });
 });
 
@@ -278,7 +295,29 @@ router.get("/monitoring", async (_req, res): Promise<void> => {
   await ensureSetup();
   const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.lastCheckedAt));
   const history = await db.select().from(monitoringHistoryTable).orderBy(desc(monitoringHistoryTable.checkedAt)).limit(100);
-  res.json({ devices, history });
+  const incidents = await db.select().from(monitoringIncidentsTable).orderBy(desc(monitoringIncidentsTable.startedAt)).limit(100);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const availabilityHistory = await db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt })
+    .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo));
+  const windows = [
+    ["24h", new Date(Date.now() - 86_400_000)],
+    ["7d", new Date(Date.now() - 7 * 86_400_000)],
+    ["30d", thirtyDaysAgo],
+  ] as const;
+  const availability = Object.fromEntries(windows.map(([key, start]) => [key, availabilityForWindow(availabilityHistory, start)]));
+  const deviceAvailability = Object.fromEntries(devices.map((device) => [device.id, Object.fromEntries(windows.map(([key, start]) => [key, availabilityForWindow(availabilityHistory.filter((sample) => sample.deviceId === device.id), start)]))]));
+  res.json({ devices, history, incidents, availability, deviceAvailability });
+});
+
+router.get("/incidents", async (req, res): Promise<void> => {
+  const status = readString(req.query.status);
+  if (status && status !== "open" && status !== "resolved") { res.status(400).json({ error: "Status must be open or resolved." }); return; }
+  const deviceId = req.query.deviceId === undefined ? undefined : readId(req.query.deviceId);
+  if (req.query.deviceId !== undefined && !deviceId) { res.status(400).json({ error: "Device ID must be a positive number." }); return; }
+  const conditions = [status ? eq(monitoringIncidentsTable.status, status) : undefined, deviceId ? eq(monitoringIncidentsTable.deviceId, deviceId) : undefined].filter(Boolean);
+  const query = db.select().from(monitoringIncidentsTable);
+  const rows = conditions.length ? await query.where(and(...conditions as [ReturnType<typeof eq>, ...ReturnType<typeof eq>[]])).orderBy(desc(monitoringIncidentsTable.startedAt)).limit(200) : await query.orderBy(desc(monitoringIncidentsTable.startedAt)).limit(200);
+  res.json(rows);
 });
 
 router.get("/devices/:id/monitoring-history", async (req, res): Promise<void> => {
@@ -355,6 +394,7 @@ router.patch("/devices/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Device not found." });
     return;
   }
+  if (device.maintenanceMode) await resolveIncidentsForMaintenance(device.id);
   res.json(device);
 });
 
