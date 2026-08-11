@@ -5,6 +5,7 @@ import { performPing } from "./reachability";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { incidentDurationSeconds } from "./availability-policy";
 import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
+import { isDeviceInMaintenance } from "./maintenance-policy";
 
 const RETENTION_DAYS = Math.max(1, Number(process.env.MONITORING_RETENTION_DAYS) || 30);
 let polling = false;
@@ -23,7 +24,7 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
       deviceId: device.id, checkedAt, status: effectiveStatus, latencyMs: result.latencyMs,
       errorMessage: result.status === "online" ? null : result.message, consecutiveFailures: failures, source,
     });
-    if (!device.maintenanceMode && effectiveStatus === "offline") {
+    if (!isDeviceInMaintenance(device, checkedAt) && effectiveStatus === "offline") {
       const [incident] = await tx.select().from(monitoringIncidentsTable)
         .where(and(eq(monitoringIncidentsTable.deviceId, device.id), eq(monitoringIncidentsTable.status, "open")))
         .orderBy(desc(monitoringIncidentsTable.startedAt)).limit(1);
@@ -71,9 +72,11 @@ async function pollDueDevices(timeoutSeconds: number) {
   if (polling) return;
   polling = true;
   try {
-    const now = Date.now();
-    const devices = await db.select().from(devicesTable).where(and(eq(devicesTable.monitoringEnabled, true), eq(devicesTable.maintenanceMode, false)));
-    const due = devices.filter((device) => isDeviceDue(device.lastCheckedAt, device.monitoringIntervalSeconds, now));
+    const now = new Date();
+    const devices = await db.select().from(devicesTable).where(eq(devicesTable.monitoringEnabled, true));
+    const maintained = devices.filter((device) => isDeviceInMaintenance(device, now));
+    const due = devices.filter((device) => !isDeviceInMaintenance(device, now) && isDeviceDue(device.lastCheckedAt, device.monitoringIntervalSeconds, now.getTime()));
+    await Promise.allSettled(maintained.map((device) => resolveIncidentsForMaintenance(device.id, now)));
     await Promise.allSettled(due.map((device) => recordDeviceCheck(device, timeoutSeconds, "automated")));
   } finally { polling = false; }
 }

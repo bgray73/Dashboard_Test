@@ -5,6 +5,7 @@ import { pingArguments } from "./reachability";
 import { availabilityForWindow, incidentDurationSeconds } from "./availability-policy";
 import { isAllowedWebhookUrl } from "./webhook-policy";
 import { isWebhookRetryDue, nextWebhookAttempt } from "./webhook-retry-policy";
+import { isDeviceInMaintenance, isScheduledMaintenanceActive } from "./maintenance-policy";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -32,6 +33,34 @@ describe("poll scheduling policy", () => {
   it("waits until the configured interval", () => assert.equal(isDeviceDue(new Date(now - 59_999), 60, now), false));
   it("polls at the interval boundary", () => assert.equal(isDeviceDue(new Date(now - 60_000), 60, now), true));
   it("calculates a deterministic retention cutoff", () => assert.equal(retentionCutoff(now, 30).toISOString(), "2026-07-11T12:00:00.000Z"));
+});
+
+describe("maintenance scheduling policy", () => {
+  const now = new Date("2026-08-10T12:00:00Z");
+
+  it("honors the independent manual maintenance override", () => {
+    assert.equal(isDeviceInMaintenance({ maintenanceMode: true }, now), true);
+  });
+
+  it("activates a scheduled window at its start and before its end", () => {
+    const device = { maintenanceMode: false, maintenanceStartsAt: new Date("2026-08-10T12:00:00Z"), maintenanceEndsAt: new Date("2026-08-10T13:00:00Z") };
+    assert.equal(isScheduledMaintenanceActive(device, now), true);
+    assert.equal(isScheduledMaintenanceActive(device, new Date("2026-08-10T12:59:59Z")), true);
+  });
+
+  it("automatically leaves maintenance at the end boundary", () => {
+    const device = { maintenanceMode: false, maintenanceStartsAt: new Date("2026-08-10T11:00:00Z"), maintenanceEndsAt: new Date("2026-08-10T12:00:00Z") };
+    assert.equal(isDeviceInMaintenance(device, now), false);
+  });
+
+  it("does not activate future or incomplete windows", () => {
+    assert.equal(isDeviceInMaintenance({ maintenanceMode: false, maintenanceStartsAt: new Date("2026-08-10T13:00:00Z"), maintenanceEndsAt: new Date("2026-08-10T14:00:00Z") }, now), false);
+    assert.equal(isDeviceInMaintenance({ maintenanceMode: false, maintenanceStartsAt: now }, now), false);
+  });
+
+  it("accepts ISO timestamps returned by PostgreSQL drivers", () => {
+    assert.equal(isDeviceInMaintenance({ maintenanceMode: false, maintenanceStartsAt: "2026-08-10T11:00:00.000Z", maintenanceEndsAt: "2026-08-10T13:00:00.000Z" }, now), true);
+  });
 });
 
 describe("ping platform arguments", () => {

@@ -2,6 +2,7 @@ export type Device = {
   id: number; hostname: string; managementIp: string; deviceType: string; vendor: string; model?: string;
   operatingSystem?: string; location?: string; serialNumber?: string; notes?: string; monitoringEnabled: boolean;
   maintenanceMode: boolean;
+  maintenanceStartsAt?: string | null; maintenanceEndsAt?: string | null;
   lastStatus: string; lastCheckedAt?: string; isSample?: boolean; createdAt?: string; updatedAt?: string;
   monitoringIntervalSeconds: number; lastLatencyMs?: number | null; consecutiveFailures: number;
 };

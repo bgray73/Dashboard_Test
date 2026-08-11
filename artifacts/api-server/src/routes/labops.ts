@@ -14,6 +14,7 @@ import { recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monito
 import { availabilityForWindow } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
+import { isDeviceInMaintenance } from "../lib/maintenance-policy";
 
 const router: IRouter = Router();
 
@@ -63,6 +64,8 @@ type DeviceInput = {
   notes?: string;
   monitoringEnabled?: boolean;
   maintenanceMode?: boolean;
+  maintenanceStartsAt?: Date | null;
+  maintenanceEndsAt?: Date | null;
   monitoringIntervalSeconds?: number;
 };
 
@@ -87,6 +90,13 @@ function readId(value: unknown): number | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   const id = Number(raw);
   return Number.isInteger(id) && id > 0 ? id : undefined;
+}
+
+function readNullableDate(value: unknown): Date | null | undefined {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: string } {
@@ -114,6 +124,12 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
   if (input.maintenanceMode !== undefined && typeof input.maintenanceMode !== "boolean") {
     return { error: "Maintenance Mode must be true or false." };
   }
+  const maintenanceStartsAt = readNullableDate(input.maintenanceStartsAt);
+  const maintenanceEndsAt = readNullableDate(input.maintenanceEndsAt);
+  if (input.maintenanceStartsAt !== undefined && maintenanceStartsAt === undefined) return { error: "Maintenance start must be a valid date and time." };
+  if (input.maintenanceEndsAt !== undefined && maintenanceEndsAt === undefined) return { error: "Maintenance end must be a valid date and time." };
+  if ((maintenanceStartsAt instanceof Date) !== (maintenanceEndsAt instanceof Date)) return { error: "Maintenance start and end must both be provided or both be cleared." };
+  if (maintenanceStartsAt && maintenanceEndsAt && maintenanceEndsAt <= maintenanceStartsAt) return { error: "Maintenance end must be after the start time." };
   const monitoringIntervalSeconds = Number(input.monitoringIntervalSeconds ?? 60);
   if (!Number.isInteger(monitoringIntervalSeconds) || monitoringIntervalSeconds < 30 || monitoringIntervalSeconds > 86400) {
     return { error: "Polling interval must be between 30 and 86400 seconds." };
@@ -131,6 +147,8 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
       notes: readString(input.notes)?.trim() ?? "",
       monitoringEnabled: input.monitoringEnabled === true,
       maintenanceMode: input.maintenanceMode === true,
+      maintenanceStartsAt: maintenanceStartsAt ?? null,
+      maintenanceEndsAt: maintenanceEndsAt ?? null,
       monitoringIntervalSeconds,
     },
   };
@@ -399,7 +417,7 @@ router.patch("/devices/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Device not found." });
     return;
   }
-  if (device.maintenanceMode) await resolveIncidentsForMaintenance(device.id);
+  if (isDeviceInMaintenance(device)) await resolveIncidentsForMaintenance(device.id);
   res.json(device);
 });
 
