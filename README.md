@@ -18,6 +18,7 @@ LabOps is a dark-first console for home and network labs. It combines device inv
 - Saved configuration archive with SNMPv3 password redaction
 - IPv4 subnet calculator and manual ping tool
 - Dark-first responsive interface
+- Durable webhook retries with delivery state and manual retry controls
 
 ## Technology
 
@@ -80,9 +81,11 @@ screenshots/            Application screenshots
 
 The API server listens on port `5000`. Vite prints the frontend URL when it starts.
 
+Set `HOST=127.0.0.1` to restrict the API to the local machine. The default remains `0.0.0.0` for container and hosted deployments.
+
 Automated monitoring runs inside the API process, without an external queue. Enabled devices are checked at their configured interval (30 seconds to 24 hours). Three consecutive failed checks are required before a device is marked offline; earlier failures remain unknown. Sustained outages open incidents, successful recovery resolves them, and maintenance mode pauses polling while resolving an active incident. Availability uses observed online/offline checks and excludes unknown results. History older than 30 days is removed daily. Set `MONITORING_RETENTION_DAYS` to a positive number to change that retention period.
 
-Phase 4 webhooks are optional and disabled by default. Configure them in Settings. Remote destinations must use HTTPS; localhost HTTP is allowed for local testing. LabOps sends JSON for incident opening and recovery, waits up to five seconds, and records the result without storing URL paths or query-string tokens in delivery history.
+Phase 5 webhooks are optional and disabled by default. Configure them in Settings. Remote destinations must use HTTPS; localhost HTTP is allowed for local testing. LabOps sends JSON for incident opening and recovery, waits up to five seconds, and records the result without storing URL paths or query-string tokens in delivery history. Failed deliveries are retained in PostgreSQL and retried after one minute and five minutes, for a maximum of three automatic attempts. Due retries resume when the API restarts, and operators can retry an unsuccessful delivery immediately from Settings.
 
 ## Validation
 
@@ -113,4 +116,4 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Current scope
 
-LabOps Phase 4 uses a small in-process scheduler plus PostgreSQL history, incidents, and webhook delivery auditing. Availability is check-based rather than an SLA-grade time-series calculation. Webhook delivery is best-effort without retries or an external queue. It does not include SNMP collection, email/SMS, authentication, or RBAC. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
+LabOps Phase 5 uses small in-process schedulers plus PostgreSQL history, incidents, and durable webhook delivery state. Availability is check-based rather than an SLA-grade time-series calculation. Webhook retries are bounded and single-process; there is no external queue or distributed claim mechanism. It does not include SNMP collection, email/SMS, authentication, or RBAC. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
