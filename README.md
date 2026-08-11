@@ -12,6 +12,7 @@ LabOps is a dark-first console for home and network labs. It combines device inv
 - Monitoring view with current health, 24-hour/7-day/30-day availability, and incident lifecycle
 - Maintenance mode that pauses automated checks without creating false outages
 - Per-device check history and open/resolved incident records
+- Optional incident-open and recovery webhooks with delivery history and test delivery
 - Configuration generation for Cisco IOS/IOS-XE, Cisco NX-OS, Juniper Junos, and Arista EOS
 - SNMPv3, Syslog, NTP, and NetFlow/IPFIX configuration output
 - Saved configuration archive with SNMPv3 password redaction
@@ -81,6 +82,8 @@ The API server listens on port `5000`. Vite prints the frontend URL when it star
 
 Automated monitoring runs inside the API process, without an external queue. Enabled devices are checked at their configured interval (30 seconds to 24 hours). Three consecutive failed checks are required before a device is marked offline; earlier failures remain unknown. Sustained outages open incidents, successful recovery resolves them, and maintenance mode pauses polling while resolving an active incident. Availability uses observed online/offline checks and excludes unknown results. History older than 30 days is removed daily. Set `MONITORING_RETENTION_DAYS` to a positive number to change that retention period.
 
+Phase 4 webhooks are optional and disabled by default. Configure them in Settings. Remote destinations must use HTTPS; localhost HTTP is allowed for local testing. LabOps sends JSON for incident opening and recovery, waits up to five seconds, and records the result without storing URL paths or query-string tokens in delivery history.
+
 ## Validation
 
 Run the full typecheck:
@@ -110,4 +113,4 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Current scope
 
-LabOps Phase 3 uses a small in-process scheduler plus PostgreSQL history and incidents. Availability is check-based rather than an SLA-grade time-series calculation. It does not include distributed workers, an external queue, SNMP collection, notifications, or application authentication. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
+LabOps Phase 4 uses a small in-process scheduler plus PostgreSQL history, incidents, and webhook delivery auditing. Availability is check-based rather than an SLA-grade time-series calculation. Webhook delivery is best-effort without retries or an external queue. It does not include SNMP collection, email/SMS, authentication, or RBAC. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
