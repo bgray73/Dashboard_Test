@@ -20,3 +20,4 @@
 export * from "./devices";
 export * from "./saved-configurations";
 export * from "./application-settings";
+export * from "./monitoring-history";

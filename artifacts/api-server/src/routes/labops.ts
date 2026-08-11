@@ -1,15 +1,15 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import {
   applicationSettingsTable,
   db,
   devicesTable,
+  monitoringHistoryTable,
   savedConfigurationsTable,
 } from "@workspace/db";
+import { isIpv4OrHostname, performPing } from "../lib/reachability";
+import { recordDeviceCheck } from "../lib/monitoring";
 
-const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
 
 const DEVICE_TYPES = [
@@ -57,6 +57,7 @@ type DeviceInput = {
   serialNumber?: string;
   notes?: string;
   monitoringEnabled?: boolean;
+  monitoringIntervalSeconds?: number;
 };
 
 type SavedConfigurationInput = {
@@ -82,10 +83,6 @@ function readId(value: unknown): number | undefined {
   return Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
-function isIpv4OrHostname(value: string): boolean {
-  return /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,252}$/.test(value);
-}
-
 function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: string } {
   if (!body || typeof body !== "object") return { error: "Device details are required." };
   const input = body as Record<string, unknown>;
@@ -108,6 +105,10 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
   if (input.monitoringEnabled !== undefined && typeof input.monitoringEnabled !== "boolean") {
     return { error: "Monitoring Enabled must be true or false." };
   }
+  const monitoringIntervalSeconds = Number(input.monitoringIntervalSeconds ?? 60);
+  if (!Number.isInteger(monitoringIntervalSeconds) || monitoringIntervalSeconds < 30 || monitoringIntervalSeconds > 86400) {
+    return { error: "Polling interval must be between 30 and 86400 seconds." };
+  }
   return {
     data: {
       hostname,
@@ -120,6 +121,7 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
       serialNumber: readString(input.serialNumber)?.trim() ?? "",
       notes: readString(input.notes)?.trim() ?? "",
       monitoringEnabled: input.monitoringEnabled === true,
+      monitoringIntervalSeconds,
     },
   };
 }
@@ -230,39 +232,6 @@ async function ensureSetup(): Promise<void> {
   await setupPromise;
 }
 
-async function performPing(target: string, timeoutSeconds: number): Promise<{ status: string; latencyMs: number | null; message: string }> {
-  if (!isIpv4OrHostname(target)) {
-    return { status: "unknown", latencyMs: null, message: "Enter a valid hostname or IP address." };
-  }
-  const started = Date.now();
-  try {
-    await execFileAsync("ping", ["-4", "-c", "1", "-W", String(Math.max(1, Math.min(30, timeoutSeconds))), target], {
-      timeout: Math.max(1000, Math.min(30000, timeoutSeconds * 1000 + 500)),
-      windowsHide: true,
-    });
-    return {
-      status: "online",
-      latencyMs: Date.now() - started,
-      message: "LabOps reached the device successfully.",
-    };
-  } catch (error) {
-    const details = error as { stderr?: string; message?: string };
-    const diagnostic = `${details.stderr ?? ""} ${details.message ?? ""}`;
-    if (/operation not permitted|permission denied|address family not supported|missing cap_net_raw/i.test(diagnostic)) {
-      return {
-        status: "unknown",
-        latencyMs: null,
-        message: "ICMP checks are unavailable in this hosted environment. Run the check from a local collector with network permissions.",
-      };
-    }
-    return {
-      status: "offline",
-      latencyMs: null,
-      message: "LabOps could not reach this device. It may be on a private network or the address may be incorrect.",
-    };
-  }
-}
-
 async function getSettings() {
   const [settings] = await db.select().from(applicationSettingsTable).limit(1);
   return settings ?? {
@@ -300,15 +269,23 @@ router.post("/dashboard/check-monitored", async (req, res): Promise<void> => {
   const devices = await db.select().from(devicesTable).where(eq(devicesTable.monitoringEnabled, true));
   const results = [];
   for (const device of devices) {
-    const result = await performPing(device.managementIp, settings.pingTimeoutSeconds);
-    const [updated] = await db.update(devicesTable).set({
-      lastStatus: result.status,
-      lastCheckedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(devicesTable.id, device.id)).returning();
-    results.push({ device: updated, ...result });
+    results.push(await recordDeviceCheck(device, settings.pingTimeoutSeconds, "manual"));
   }
   res.json({ checked: results.length, results });
+});
+
+router.get("/monitoring", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.lastCheckedAt));
+  const history = await db.select().from(monitoringHistoryTable).orderBy(desc(monitoringHistoryTable.checkedAt)).limit(100);
+  res.json({ devices, history });
+});
+
+router.get("/devices/:id/monitoring-history", async (req, res): Promise<void> => {
+  const id = readId(req.params.id);
+  if (!id) { res.status(400).json({ error: "Device ID must be a positive number." }); return; }
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  res.json(await db.select().from(monitoringHistoryTable).where(eq(monitoringHistoryTable.deviceId, id)).orderBy(desc(monitoringHistoryTable.checkedAt)).limit(limit));
 });
 
 router.get("/devices", async (req, res): Promise<void> => {
@@ -410,13 +387,7 @@ router.post("/devices/:id/ping", async (req, res): Promise<void> => {
     return;
   }
   const settings = await getSettings();
-  const result = await performPing(device.managementIp, settings.pingTimeoutSeconds);
-  const [updated] = await db.update(devicesTable).set({
-    lastStatus: result.status,
-    lastCheckedAt: new Date(),
-    updatedAt: new Date(),
-  }).where(eq(devicesTable.id, id)).returning();
-  res.json({ device: updated, ...result });
+  res.json(await recordDeviceCheck(device, settings.pingTimeoutSeconds, "manual"));
 });
 
 router.get("/saved-configurations", async (_req, res): Promise<void> => {
