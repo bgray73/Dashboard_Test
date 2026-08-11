@@ -4,6 +4,7 @@ import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monito
 import { pingArguments } from "./reachability";
 import { availabilityForWindow, incidentDurationSeconds } from "./availability-policy";
 import { isAllowedWebhookUrl } from "./webhook-policy";
+import { isWebhookRetryDue, nextWebhookAttempt } from "./webhook-retry-policy";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -83,5 +84,23 @@ describe("webhook URL policy", () => {
     assert.equal(isAllowedWebhookUrl("http://example.com/hook"), false);
     assert.equal(isAllowedWebhookUrl("file:///tmp/hook"), false);
     assert.equal(isAllowedWebhookUrl("not-a-url"), false);
+  });
+});
+
+describe("webhook retry policy", () => {
+  const attemptedAt = new Date("2026-08-10T12:00:00Z");
+
+  it("uses bounded one-minute and five-minute retry delays", () => {
+    assert.equal(nextWebhookAttempt(1, attemptedAt)?.toISOString(), "2026-08-10T12:01:00.000Z");
+    assert.equal(nextWebhookAttempt(2, attemptedAt)?.toISOString(), "2026-08-10T12:05:00.000Z");
+    assert.equal(nextWebhookAttempt(3, attemptedAt), null);
+  });
+
+  it("runs only due retrying deliveries below the attempt limit", () => {
+    const dueAt = new Date("2026-08-10T12:01:00Z");
+    const now = new Date("2026-08-10T12:01:01Z");
+    assert.equal(isWebhookRetryDue("retrying", 1, dueAt, now), true);
+    assert.equal(isWebhookRetryDue("delivered", 1, dueAt, now), false);
+    assert.equal(isWebhookRetryDue("retrying", 3, dueAt, now), false);
   });
 });
