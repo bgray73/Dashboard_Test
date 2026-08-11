@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -14,8 +14,11 @@ export const devicesTable = pgTable("devices", {
   serialNumber: text("serial_number").notNull().default(""),
   notes: text("notes").notNull().default(""),
   monitoringEnabled: boolean("monitoring_enabled").notNull().default(false),
+  monitoringIntervalSeconds: integer("monitoring_interval_seconds").notNull().default(60),
   lastStatus: text("last_status").notNull().default("unknown"),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  lastLatencyMs: integer("last_latency_ms"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   isSample: boolean("is_sample").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

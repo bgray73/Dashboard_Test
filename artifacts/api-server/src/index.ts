@@ -1,5 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { db, applicationSettingsTable } from "@workspace/db";
+import { startMonitoring } from "./lib/monitoring";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +24,8 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  startMonitoring(async () => {
+    const [settings] = await db.select({ pingTimeoutSeconds: applicationSettingsTable.pingTimeoutSeconds }).from(applicationSettingsTable).limit(1);
+    return settings?.pingTimeoutSeconds ?? 3;
+  });
 });

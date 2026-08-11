@@ -1,13 +1,15 @@
 # LabOps
 
-LabOps is a dark-first console for home and network labs. It combines device inventory, manual reachability checks, network configuration generation, saved configurations, and practical IPv4 tools in one React application.
+LabOps is a dark-first console for home and network labs. It combines device inventory, automated and manual reachability checks, network configuration generation, saved configurations, and practical IPv4 tools in one React application.
 
 ![LabOps dashboard](screenshots/labops-dashboard-final.jpg)
 
 ## Features
 
-- Dashboard with device counts and recent status
+- Dashboard with automated device-health counts and recent status
 - Device inventory with add, edit, delete, search, filtering, and manual ping
+- Per-device background monitoring intervals, failure streaks, latency, and retained history
+- Monitoring view with current health and recent outages
 - Configuration generation for Cisco IOS/IOS-XE, Cisco NX-OS, Juniper Junos, and Arista EOS
 - SNMPv3, Syslog, NTP, and NetFlow/IPFIX configuration output
 - Saved configuration archive with SNMPv3 password redaction
@@ -75,6 +77,8 @@ screenshots/            Application screenshots
 
 The API server listens on port `5000`. Vite prints the frontend URL when it starts.
 
+Automated monitoring runs inside the API process, without an external queue. Enabled devices are checked at their configured interval (30 seconds to 24 hours). Three consecutive failed checks are required before a device is marked offline; blocked or unavailable ICMP is reported as unknown. History older than 30 days is removed daily. Set `MONITORING_RETENTION_DAYS` to a positive number to change that retention period.
+
 ## Validation
 
 Run the full typecheck:
@@ -104,4 +108,4 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Current scope
 
-LabOps Phase 1 uses manual reachability checks. It does not include a scheduler, polling engine, queue, collector, or application authentication. Hosted containers may not permit ICMP; in that case, manual ping results are reported as offline instead of being mocked.
+LabOps Phase 2 uses a small in-process scheduler and PostgreSQL history. It does not include distributed workers, an external queue, SNMP collection, notifications, or application authentication. Hosted containers may not permit ICMP; in that case, checks are reported as unknown instead of being mocked as successful.
