@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
+import { pingArguments } from "./reachability";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -28,4 +29,18 @@ describe("poll scheduling policy", () => {
   it("waits until the configured interval", () => assert.equal(isDeviceDue(new Date(now - 59_999), 60, now), false));
   it("polls at the interval boundary", () => assert.equal(isDeviceDue(new Date(now - 60_000), 60, now), true));
   it("calculates a deterministic retention cutoff", () => assert.equal(retentionCutoff(now, 30).toISOString(), "2026-07-11T12:00:00.000Z"));
+});
+
+describe("ping platform arguments", () => {
+  it("uses a millisecond timeout without Linux-only IPv4 flags on macOS", () => {
+    assert.deepEqual(pingArguments("127.0.0.1", 5, "darwin"), ["-c", "1", "-W", "5000", "127.0.0.1"]);
+  });
+
+  it("uses seconds for Linux iputils", () => {
+    assert.deepEqual(pingArguments("127.0.0.1", 5, "linux"), ["-4", "-c", "1", "-W", "5", "127.0.0.1"]);
+  });
+
+  it("uses Windows timeout syntax", () => {
+    assert.deepEqual(pingArguments("127.0.0.1", 5, "win32"), ["-n", "1", "-w", "5000", "127.0.0.1"]);
+  });
 });
