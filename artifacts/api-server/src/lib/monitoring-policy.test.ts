@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { pingArguments } from "./reachability";
+import { availabilityForWindow, incidentDurationSeconds } from "./availability-policy";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -42,5 +43,31 @@ describe("ping platform arguments", () => {
 
   it("uses Windows timeout syntax", () => {
     assert.deepEqual(pingArguments("127.0.0.1", 5, "win32"), ["-n", "1", "-w", "5000", "127.0.0.1"]);
+  });
+});
+
+describe("availability and incident policy", () => {
+  const now = new Date("2026-08-10T12:00:00Z");
+  const samples = [
+    { status: "online", checkedAt: new Date("2026-08-10T11:00:00Z") },
+    { status: "online", checkedAt: new Date("2026-08-10T11:01:00Z") },
+    { status: "offline", checkedAt: new Date("2026-08-10T11:02:00Z") },
+    { status: "unknown", checkedAt: new Date("2026-08-10T11:03:00Z") },
+    { status: "online", checkedAt: new Date("2026-07-01T11:00:00Z") },
+  ];
+
+  it("calculates availability from observed online and offline checks", () => {
+    assert.deepEqual(availabilityForWindow(samples, new Date(now.getTime() - 86_400_000)), {
+      percentage: 66.67, onlineChecks: 2, offlineChecks: 1, observedChecks: 3,
+    });
+  });
+
+  it("returns null when a window has no observed checks", () => {
+    assert.equal(availabilityForWindow([], new Date(now.getTime() - 86_400_000)).percentage, null);
+  });
+
+  it("calculates a non-negative incident duration", () => {
+    assert.equal(incidentDurationSeconds(new Date("2026-08-10T11:00:00Z"), now), 3600);
+    assert.equal(incidentDurationSeconds(now, new Date("2026-08-10T11:00:00Z")), 0);
   });
 });

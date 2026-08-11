@@ -14,6 +14,7 @@ export const devicesTable = pgTable("devices", {
   serialNumber: text("serial_number").notNull().default(""),
   notes: text("notes").notNull().default(""),
   monitoringEnabled: boolean("monitoring_enabled").notNull().default(false),
+  maintenanceMode: boolean("maintenance_mode").notNull().default(false),
   monitoringIntervalSeconds: integer("monitoring_interval_seconds").notNull().default(60),
   lastStatus: text("last_status").notNull().default("unknown"),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
