@@ -20,6 +20,7 @@ export type PingResult = { status: string; latencyMs: number | null; message: st
 export type ReportsSummary = { devices: number; incidents: number; monitoringChecksRetained: number; retentionDays: number; generatedAt: string };
 export type AvailabilityReportRow = { deviceId: number; hostname: string; currentStatus: string; monitoringEnabled: boolean; availability24h: AvailabilityMetric; availability7d: AvailabilityMetric; availability30d: AvailabilityMetric };
 export type AvailabilityReport = { generatedAt: string; retentionDays: number; devices: AvailabilityReportRow[] };
+export type RetentionStatus = { retentionDays: number; cutoff: string; eligibleRows: number; retainedRows: number; oldestRetainedCheckAt?: string | null; lastCleanup?: { completedAt: string; deletedRows: number } | null };
 const base = '/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) }, ...options });
@@ -49,6 +50,8 @@ export const api = {
   deleteConfig: (id: number) => request<void>(`/saved-configurations/${id}`, { method: 'DELETE' }),
   settings: () => request<Settings>('/settings'),
   updateSettings: (data: Partial<Settings>) => request<Settings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  retentionStatus: () => request<RetentionStatus>('/settings/retention-status'),
+  cleanupRetention: (expectedRetentionDays: number) => request<{ retentionDays: number; cutoff: string; completedAt: string; deletedRows: number; status: RetentionStatus }>('/settings/retention-cleanup', { method: 'POST', body: JSON.stringify({ expectedRetentionDays }) }),
   notificationDeliveries: () => request<NotificationDelivery[]>('/notifications/deliveries'),
   testWebhook: () => request<NotificationDelivery>('/notifications/test', { method: 'POST' }),
   retryWebhook: (id: number) => request<NotificationDelivery>(`/notifications/deliveries/${id}/retry`, { method: 'POST' }),

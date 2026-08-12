@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { calculateMonitoringState, isDeviceDue, isValidRetentionDays, retentionCutoff } from "./monitoring-policy";
+import { calculateMonitoringState, isDeviceDue, isRetentionPreviewCurrent, isValidRetentionDays, retentionCutoff } from "./monitoring-policy";
 import { pingArguments } from "./reachability";
 import { availabilityForWindow, availabilityReport, incidentDurationSeconds } from "./availability-policy";
 import { isAllowedWebhookUrl } from "./webhook-policy";
@@ -39,6 +39,11 @@ describe("poll scheduling policy", () => {
     assert.equal(isValidRetentionDays(365), true);
     assert.equal(isValidRetentionDays(29), false);
     assert.equal(isValidRetentionDays(365.5), false);
+  });
+  it("requires cleanup to match the previewed retention", () => {
+    assert.equal(isRetentionPreviewCurrent(30, 30), true);
+    assert.equal(isRetentionPreviewCurrent(45, 30), false);
+    assert.equal(isRetentionPreviewCurrent(29, 29), false);
   });
 });
 

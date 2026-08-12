@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, count, desc, eq, gte, lt, min } from "drizzle-orm";
 import { applicationSettingsTable, db, devicesTable, incidentActivityTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
 import { logger } from "./logger";
 import { performPing } from "./reachability";
@@ -8,6 +8,36 @@ import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
 import { isDeviceInMaintenance } from "./maintenance-policy";
 
 let polling = false;
+let retentionCleanup: Promise<{ retentionDays: number; cutoff: string; completedAt: string; deletedRows: number }> | null = null;
+let lastRetentionCleanup: { completedAt: string; deletedRows: number } | null = null;
+
+async function retentionDays() {
+  const [settings] = await db.select({ days: applicationSettingsTable.monitoringRetentionDays }).from(applicationSettingsTable).limit(1);
+  return settings?.days ?? 30;
+}
+
+export async function getRetentionStatus() {
+  const days = await retentionDays();
+  const cutoff = retentionCutoff(Date.now(), days);
+  const [[eligible], [retained]] = await Promise.all([
+    db.select({ rows: count() }).from(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff)),
+    db.select({ rows: count(), oldestCheckAt: min(monitoringHistoryTable.checkedAt) }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, cutoff)),
+  ]);
+  return { retentionDays: days, cutoff: cutoff.toISOString(), eligibleRows: eligible.rows, retainedRows: retained.rows, oldestRetainedCheckAt: retained.oldestCheckAt, lastCleanup: lastRetentionCleanup };
+}
+
+export async function cleanupMonitoringHistory() {
+  if (retentionCleanup) return retentionCleanup;
+  retentionCleanup = (async () => {
+    const days = await retentionDays();
+    const cutoff = retentionCutoff(Date.now(), days);
+    const [eligible] = await db.select({ rows: count() }).from(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
+    await db.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
+    lastRetentionCleanup = { completedAt: new Date().toISOString(), deletedRows: eligible.rows };
+    return { retentionDays: days, cutoff: cutoff.toISOString(), ...lastRetentionCleanup };
+  })().finally(() => { retentionCleanup = null; });
+  return retentionCleanup;
+}
 
 export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated") {
   const result = await performPing(device.managementIp, timeoutSeconds);
@@ -102,9 +132,7 @@ export function startMonitoring(getTimeoutSeconds: () => Promise<number>) {
   tick();
   const pollTimer = setInterval(tick, 10_000);
   pollTimer.unref();
-  const cleanup = () => void db.select({ days: applicationSettingsTable.monitoringRetentionDays }).from(applicationSettingsTable).limit(1)
-    .then(([settings]) => db.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, retentionCutoff(Date.now(), settings?.days ?? 30))))
-    .catch((error) => logger.error({ err: error }, "Monitoring retention cleanup failed"));
+  const cleanup = () => void cleanupMonitoringHistory().catch((error) => logger.error({ err: error }, "Monitoring retention cleanup failed"));
   cleanup();
   const cleanupTimer = setInterval(cleanup, 86_400_000);
   cleanupTimer.unref();
