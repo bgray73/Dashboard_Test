@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { and, desc, eq, gte } from "drizzle-orm";
 import {
   applicationSettingsTable,
@@ -18,6 +18,7 @@ import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
 import { isDeviceInMaintenance } from "../lib/maintenance-policy";
 import { isDeviceDue } from "../lib/monitoring-policy";
+import { toCsv } from "../lib/csv";
 
 const router: IRouter = Router();
 
@@ -312,6 +313,42 @@ router.get("/dashboard/recent-status", async (_req, res): Promise<void> => {
   await ensureSetup();
   const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.updatedAt));
   res.json(devices.slice(0, 12));
+});
+
+function sendCsv(res: Response, filename: string, body: string) {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(body);
+}
+
+router.get("/reports/summary", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const [devices, incidents, checks] = await Promise.all([
+    db.select({ id: devicesTable.id }).from(devicesTable),
+    db.select({ id: monitoringIncidentsTable.id }).from(monitoringIncidentsTable),
+    db.select({ id: monitoringHistoryTable.id }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)),
+  ]);
+  res.json({ devices: devices.length, incidents: incidents.length, monitoringChecks30d: checks.length, generatedAt: new Date().toISOString() });
+});
+
+router.get("/reports/devices.csv", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const rows = await db.select().from(devicesTable).orderBy(devicesTable.hostname);
+  sendCsv(res, "labops-devices.csv", toCsv(["id", "hostname", "management_ip", "device_type", "vendor", "model", "location", "status", "last_checked", "monitoring_enabled", "poll_interval_seconds"], rows.map((d) => [d.id, d.hostname, d.managementIp, d.deviceType, d.vendor, d.model, d.location, d.lastStatus, d.lastCheckedAt, d.monitoringEnabled, d.monitoringIntervalSeconds])));
+});
+
+router.get("/reports/incidents.csv", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const rows = await db.select().from(monitoringIncidentsTable).orderBy(desc(monitoringIncidentsTable.startedAt));
+  sendCsv(res, "labops-incidents.csv", toCsv(["id", "device_id", "status", "started_at", "last_failure_at", "resolved_at", "duration_seconds", "peak_failures", "acknowledged_at", "acknowledged_by", "operator_note", "error_message", "resolution_reason"], rows.map((i) => [i.id, i.deviceId, i.status, i.startedAt, i.lastFailureAt, i.resolvedAt, i.durationSeconds, i.peakFailures, i.acknowledgedAt, i.acknowledgedBy, i.operatorNote, i.errorMessage, i.resolutionReason])));
+});
+
+router.get("/reports/monitoring-history.csv", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const rows = await db.select().from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)).orderBy(desc(monitoringHistoryTable.checkedAt));
+  sendCsv(res, "labops-monitoring-history-30d.csv", toCsv(["id", "device_id", "checked_at", "status", "latency_ms", "consecutive_failures", "source", "error_message"], rows.map((h) => [h.id, h.deviceId, h.checkedAt, h.status, h.latencyMs, h.consecutiveFailures, h.source, h.errorMessage])));
 });
 
 router.post("/dashboard/check-monitored", async (req, res): Promise<void> => {
