@@ -7,7 +7,8 @@ export type Device = {
   monitoringIntervalSeconds: number; lastLatencyMs?: number | null; consecutiveFailures: number;
 };
 export type MonitoringHistory = { id: number; deviceId: number; checkedAt: string; status: string; latencyMs: number | null; errorMessage?: string | null; consecutiveFailures: number; source: string };
-export type MonitoringIncident = { id: number; deviceId: number; startedAt: string; lastFailureAt: string; resolvedAt?: string | null; status: "open" | "resolved"; peakFailures: number; durationSeconds?: number | null; errorMessage?: string | null; resolutionReason?: string | null };
+export type MonitoringIncident = { id: number; deviceId: number; startedAt: string; lastFailureAt: string; resolvedAt?: string | null; status: "open" | "resolved"; acknowledgedAt?: string | null; acknowledgedBy?: string | null; operatorNote?: string | null; peakFailures: number; durationSeconds?: number | null; errorMessage?: string | null; resolutionReason?: string | null };
+export type IncidentActivity = { id: number; incidentId: number; eventType: string; actor?: string | null; note?: string | null; occurredAt: string };
 export type MaintenanceHistory = { id: number; deviceId: number; eventType: string; occurredAt: string; maintenanceStartsAt?: string | null; maintenanceEndsAt?: string | null };
 export type SchedulerSnapshot = { serverTime: string; enabledDevices: number; pausedForMaintenance: number; dueDevices: number; nextDueAt: string | null };
 export type AvailabilityMetric = { percentage: number | null; onlineChecks: number; offlineChecks: number; observedChecks: number };
@@ -36,6 +37,8 @@ export const api = {
   maintenanceHistory: (deviceId?: number) => request<MaintenanceHistory[]>(`/maintenance-history${deviceId ? `?deviceId=${deviceId}` : ''}`),
   deviceHistory: (id: number) => request<MonitoringHistory[]>(`/devices/${id}/monitoring-history?limit=25`),
   incidents: (deviceId?: number) => request<MonitoringIncident[]>(`/incidents${deviceId ? `?deviceId=${deviceId}` : ''}`),
+  acknowledgeIncident: (id: number, data: { actor: string; note?: string }) => request<MonitoringIncident>(`/incidents/${id}/acknowledgment`, { method: 'PATCH', body: JSON.stringify(data) }),
+  incidentActivity: (id: number) => request<IncidentActivity[]>(`/incidents/${id}/activity`),
   saved: () => request<SavedConfiguration[]>('/saved-configurations'),
   saveConfig: (data: Partial<SavedConfiguration>) => request<SavedConfiguration>('/saved-configurations', { method: 'POST', body: JSON.stringify(data) }),
   deleteConfig: (id: number) => request<void>(`/saved-configurations/${id}`, { method: 'DELETE' }),
