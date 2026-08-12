@@ -18,6 +18,8 @@ export type Settings = { applicationName: string; defaultTheme: string; defaultC
 export type NotificationDelivery = { id: number; incidentId?: number | null; eventType: string; destination: string; status: string; responseStatus?: number | null; errorMessage?: string | null; attemptCount: number; nextAttemptAt?: string | null; attemptedAt: string; deliveredAt?: string | null };
 export type PingResult = { status: string; latencyMs: number | null; message: string; target?: string; device?: Device };
 export type ReportsSummary = { devices: number; incidents: number; monitoringChecks30d: number; generatedAt: string };
+export type AvailabilityReportRow = { deviceId: number; hostname: string; currentStatus: string; monitoringEnabled: boolean; availability24h: AvailabilityMetric; availability7d: AvailabilityMetric; availability30d: AvailabilityMetric };
+export type AvailabilityReport = { generatedAt: string; devices: AvailabilityReportRow[] };
 const base = '/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) }, ...options });
@@ -41,6 +43,7 @@ export const api = {
   acknowledgeIncident: (id: number, data: { actor: string; note?: string }) => request<MonitoringIncident>(`/incidents/${id}/acknowledgment`, { method: 'PATCH', body: JSON.stringify(data) }),
   incidentActivity: (id: number) => request<IncidentActivity[]>(`/incidents/${id}/activity`),
   reportsSummary: () => request<ReportsSummary>('/reports/summary'),
+  availabilityReport: () => request<AvailabilityReport>('/reports/availability'),
   saved: () => request<SavedConfiguration[]>('/saved-configurations'),
   saveConfig: (data: Partial<SavedConfiguration>) => request<SavedConfiguration>('/saved-configurations', { method: 'POST', body: JSON.stringify(data) }),
   deleteConfig: (id: number) => request<void>(`/saved-configurations/${id}`, { method: 'DELETE' }),

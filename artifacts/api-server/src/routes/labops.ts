@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { isIpv4OrHostname, performPing } from "../lib/reachability";
 import { recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monitoring";
-import { availabilityForWindow } from "../lib/availability-policy";
+import { availabilityForWindow, availabilityReport } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
 import { isDeviceInMaintenance } from "../lib/maintenance-policy";
@@ -321,6 +321,15 @@ function sendCsv(res: Response, filename: string, body: string) {
   res.send(body);
 }
 
+async function getAvailabilityReport() {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const [devices, history] = await Promise.all([
+    db.select({ id: devicesTable.id, hostname: devicesTable.hostname, lastStatus: devicesTable.lastStatus, monitoringEnabled: devicesTable.monitoringEnabled }).from(devicesTable).orderBy(devicesTable.hostname),
+    db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)),
+  ]);
+  return availabilityReport(devices, history);
+}
+
 router.get("/reports/summary", async (_req, res): Promise<void> => {
   await ensureSetup();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
@@ -349,6 +358,20 @@ router.get("/reports/monitoring-history.csv", async (_req, res): Promise<void> =
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
   const rows = await db.select().from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)).orderBy(desc(monitoringHistoryTable.checkedAt));
   sendCsv(res, "labops-monitoring-history-30d.csv", toCsv(["id", "device_id", "checked_at", "status", "latency_ms", "consecutive_failures", "source", "error_message"], rows.map((h) => [h.id, h.deviceId, h.checkedAt, h.status, h.latencyMs, h.consecutiveFailures, h.source, h.errorMessage])));
+});
+
+router.get("/reports/availability", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  res.json({ generatedAt: new Date().toISOString(), devices: await getAvailabilityReport() });
+});
+
+router.get("/reports/availability.csv", async (_req, res): Promise<void> => {
+  await ensureSetup();
+  const rows = await getAvailabilityReport();
+  sendCsv(res, "labops-device-availability.csv", toCsv(
+    ["device_id", "hostname", "current_status", "monitoring_enabled", "availability_24h_percent", "observed_checks_24h", "availability_7d_percent", "observed_checks_7d", "availability_30d_percent", "observed_checks_30d"],
+    rows.map((row) => [row.deviceId, row.hostname, row.currentStatus, row.monitoringEnabled, row.availability24h.percentage, row.availability24h.observedChecks, row.availability7d.percentage, row.availability7d.observedChecks, row.availability30d.percentage, row.availability30d.observedChecks]),
+  ));
 });
 
 router.post("/dashboard/check-monitored", async (req, res): Promise<void> => {

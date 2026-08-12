@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { pingArguments } from "./reachability";
-import { availabilityForWindow, incidentDurationSeconds } from "./availability-policy";
+import { availabilityForWindow, availabilityReport, incidentDurationSeconds } from "./availability-policy";
 import { isAllowedWebhookUrl } from "./webhook-policy";
 import { isWebhookRetryDue, nextWebhookAttempt } from "./webhook-retry-policy";
 import { isDeviceInMaintenance, isScheduledMaintenanceActive } from "./maintenance-policy";
@@ -101,6 +101,18 @@ describe("availability and incident policy", () => {
   it("calculates a non-negative incident duration", () => {
     assert.equal(incidentDurationSeconds(new Date("2026-08-10T11:00:00Z"), now), 3600);
     assert.equal(incidentDurationSeconds(now, new Date("2026-08-10T11:00:00Z")), 0);
+  });
+
+  it("builds independent per-device availability windows", () => {
+    const now = new Date("2026-08-12T12:00:00Z");
+    const report = availabilityReport(
+      [{ id: 1, hostname: "router-01", lastStatus: "online", monitoringEnabled: true }, { id: 2, hostname: "server-01", lastStatus: "unknown", monitoringEnabled: false }],
+      [{ deviceId: 1, status: "online", checkedAt: new Date("2026-08-12T11:00:00Z") }, { deviceId: 1, status: "offline", checkedAt: new Date("2026-08-10T11:00:00Z") }],
+      now,
+    );
+    assert.equal(report[0].availability24h.percentage, 100);
+    assert.equal(report[0].availability7d.percentage, 50);
+    assert.equal(report[1].availability30d.percentage, null);
   });
 });
 
