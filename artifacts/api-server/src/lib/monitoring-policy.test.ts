@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
+import { calculateMonitoringState, isDeviceDue, isValidRetentionDays, retentionCutoff } from "./monitoring-policy";
 import { pingArguments } from "./reachability";
 import { availabilityForWindow, availabilityReport, incidentDurationSeconds } from "./availability-policy";
 import { isAllowedWebhookUrl } from "./webhook-policy";
@@ -34,6 +34,12 @@ describe("poll scheduling policy", () => {
   it("waits until the configured interval", () => assert.equal(isDeviceDue(new Date(now - 59_999), 60, now), false));
   it("polls at the interval boundary", () => assert.equal(isDeviceDue(new Date(now - 60_000), 60, now), true));
   it("calculates a deterministic retention cutoff", () => assert.equal(retentionCutoff(now, 30).toISOString(), "2026-07-11T12:00:00.000Z"));
+  it("accepts retention from 30 through 365 days", () => {
+    assert.equal(isValidRetentionDays(30), true);
+    assert.equal(isValidRetentionDays(365), true);
+    assert.equal(isValidRetentionDays(29), false);
+    assert.equal(isValidRetentionDays(365.5), false);
+  });
 });
 
 describe("maintenance scheduling policy", () => {
