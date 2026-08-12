@@ -8,6 +8,7 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
+    "collectors": "tsx ./src/collectors-cli.ts",
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
   },
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "tsx": "catalog:"
   }
 }
