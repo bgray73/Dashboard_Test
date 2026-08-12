@@ -14,12 +14,12 @@ export type SchedulerSnapshot = { serverTime: string; enabledDevices: number; pa
 export type AvailabilityMetric = { percentage: number | null; onlineChecks: number; offlineChecks: number; observedChecks: number };
 export type AvailabilityWindows = Record<"24h" | "7d" | "30d", AvailabilityMetric>;
 export type SavedConfiguration = { id: number; name: string; vendor: string; configurationType: string; associatedDeviceId?: number; generatedConfiguration: string; notes?: string; createdAt?: string; updatedAt?: string; authPassword?: string; privacyPassword?: string };
-export type Settings = { applicationName: string; defaultTheme: string; defaultConfigVendor: string; pingTimeoutSeconds: number; webhookEnabled: boolean; webhookUrl: string };
+export type Settings = { applicationName: string; defaultTheme: string; defaultConfigVendor: string; pingTimeoutSeconds: number; monitoringRetentionDays: number; webhookEnabled: boolean; webhookUrl: string };
 export type NotificationDelivery = { id: number; incidentId?: number | null; eventType: string; destination: string; status: string; responseStatus?: number | null; errorMessage?: string | null; attemptCount: number; nextAttemptAt?: string | null; attemptedAt: string; deliveredAt?: string | null };
 export type PingResult = { status: string; latencyMs: number | null; message: string; target?: string; device?: Device };
-export type ReportsSummary = { devices: number; incidents: number; monitoringChecks30d: number; generatedAt: string };
+export type ReportsSummary = { devices: number; incidents: number; monitoringChecksRetained: number; retentionDays: number; generatedAt: string };
 export type AvailabilityReportRow = { deviceId: number; hostname: string; currentStatus: string; monitoringEnabled: boolean; availability24h: AvailabilityMetric; availability7d: AvailabilityMetric; availability30d: AvailabilityMetric };
-export type AvailabilityReport = { generatedAt: string; devices: AvailabilityReportRow[] };
+export type AvailabilityReport = { generatedAt: string; retentionDays: number; devices: AvailabilityReportRow[] };
 const base = '/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) }, ...options });

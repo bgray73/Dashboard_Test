@@ -1,5 +1,5 @@
 import { and, desc, eq, lt } from "drizzle-orm";
-import { db, devicesTable, incidentActivityTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
+import { applicationSettingsTable, db, devicesTable, incidentActivityTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
 import { logger } from "./logger";
 import { performPing } from "./reachability";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
@@ -7,7 +7,6 @@ import { incidentDurationSeconds } from "./availability-policy";
 import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
 import { isDeviceInMaintenance } from "./maintenance-policy";
 
-const RETENTION_DAYS = Math.max(1, Number(process.env.MONITORING_RETENTION_DAYS) || 30);
 let polling = false;
 
 export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated") {
@@ -103,7 +102,9 @@ export function startMonitoring(getTimeoutSeconds: () => Promise<number>) {
   tick();
   const pollTimer = setInterval(tick, 10_000);
   pollTimer.unref();
-  const cleanup = () => void db.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, retentionCutoff(Date.now(), RETENTION_DAYS))).catch((error) => logger.error({ err: error }, "Monitoring retention cleanup failed"));
+  const cleanup = () => void db.select({ days: applicationSettingsTable.monitoringRetentionDays }).from(applicationSettingsTable).limit(1)
+    .then(([settings]) => db.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, retentionCutoff(Date.now(), settings?.days ?? 30))))
+    .catch((error) => logger.error({ err: error }, "Monitoring retention cleanup failed"));
   cleanup();
   const cleanupTimer = setInterval(cleanup, 86_400_000);
   cleanupTimer.unref();

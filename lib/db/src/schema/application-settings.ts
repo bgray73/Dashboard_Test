@@ -8,6 +8,7 @@ export const applicationSettingsTable = pgTable("application_settings", {
   defaultTheme: text("default_theme").notNull().default("dark"),
   defaultConfigVendor: text("default_config_vendor").notNull().default("Cisco IOS / IOS-XE"),
   pingTimeoutSeconds: integer("ping_timeout_seconds").notNull().default(3),
+  monitoringRetentionDays: integer("monitoring_retention_days").notNull().default(30),
   webhookEnabled: boolean("webhook_enabled").notNull().default(false),
   webhookUrl: text("webhook_url").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

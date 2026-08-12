@@ -17,7 +17,7 @@ import { availabilityForWindow, availabilityReport } from "../lib/availability-p
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
 import { isDeviceInMaintenance } from "../lib/maintenance-policy";
-import { isDeviceDue } from "../lib/monitoring-policy";
+import { isDeviceDue, isValidRetentionDays, retentionCutoff } from "../lib/monitoring-policy";
 import { toCsv } from "../lib/csv";
 
 const router: IRouter = Router();
@@ -277,6 +277,7 @@ async function getSettings() {
     defaultTheme: "dark",
     defaultConfigVendor: CONFIG_VENDORS[0],
     pingTimeoutSeconds: 3,
+    monitoringRetentionDays: 30,
     webhookEnabled: false,
     webhookUrl: "",
     updatedAt: new Date(),
@@ -321,24 +322,25 @@ function sendCsv(res: Response, filename: string, body: string) {
   res.send(body);
 }
 
-async function getAvailabilityReport() {
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+async function getAvailabilityReport(retentionDays: number) {
+  const retentionStart = retentionCutoff(Date.now(), retentionDays);
   const [devices, history] = await Promise.all([
     db.select({ id: devicesTable.id, hostname: devicesTable.hostname, lastStatus: devicesTable.lastStatus, monitoringEnabled: devicesTable.monitoringEnabled }).from(devicesTable).orderBy(devicesTable.hostname),
-    db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)),
+    db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, retentionStart)),
   ]);
   return availabilityReport(devices, history);
 }
 
 router.get("/reports/summary", async (_req, res): Promise<void> => {
   await ensureSetup();
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const settings = await getSettings();
+  const retentionStart = retentionCutoff(Date.now(), settings.monitoringRetentionDays);
   const [devices, incidents, checks] = await Promise.all([
     db.select({ id: devicesTable.id }).from(devicesTable),
     db.select({ id: monitoringIncidentsTable.id }).from(monitoringIncidentsTable),
-    db.select({ id: monitoringHistoryTable.id }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)),
+    db.select({ id: monitoringHistoryTable.id }).from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, retentionStart)),
   ]);
-  res.json({ devices: devices.length, incidents: incidents.length, monitoringChecks30d: checks.length, generatedAt: new Date().toISOString() });
+  res.json({ devices: devices.length, incidents: incidents.length, monitoringChecksRetained: checks.length, retentionDays: settings.monitoringRetentionDays, generatedAt: new Date().toISOString() });
 });
 
 router.get("/reports/devices.csv", async (_req, res): Promise<void> => {
@@ -355,19 +357,21 @@ router.get("/reports/incidents.csv", async (_req, res): Promise<void> => {
 
 router.get("/reports/monitoring-history.csv", async (_req, res): Promise<void> => {
   await ensureSetup();
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
-  const rows = await db.select().from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo)).orderBy(desc(monitoringHistoryTable.checkedAt));
-  sendCsv(res, "labops-monitoring-history-30d.csv", toCsv(["id", "device_id", "checked_at", "status", "latency_ms", "consecutive_failures", "source", "error_message"], rows.map((h) => [h.id, h.deviceId, h.checkedAt, h.status, h.latencyMs, h.consecutiveFailures, h.source, h.errorMessage])));
+  const settings = await getSettings();
+  const rows = await db.select().from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, retentionCutoff(Date.now(), settings.monitoringRetentionDays))).orderBy(desc(monitoringHistoryTable.checkedAt));
+  sendCsv(res, `labops-monitoring-history-${settings.monitoringRetentionDays}d.csv`, toCsv(["id", "device_id", "checked_at", "status", "latency_ms", "consecutive_failures", "source", "error_message"], rows.map((h) => [h.id, h.deviceId, h.checkedAt, h.status, h.latencyMs, h.consecutiveFailures, h.source, h.errorMessage])));
 });
 
 router.get("/reports/availability", async (_req, res): Promise<void> => {
   await ensureSetup();
-  res.json({ generatedAt: new Date().toISOString(), devices: await getAvailabilityReport() });
+  const settings = await getSettings();
+  res.json({ generatedAt: new Date().toISOString(), retentionDays: settings.monitoringRetentionDays, devices: await getAvailabilityReport(settings.monitoringRetentionDays) });
 });
 
 router.get("/reports/availability.csv", async (_req, res): Promise<void> => {
   await ensureSetup();
-  const rows = await getAvailabilityReport();
+  const settings = await getSettings();
+  const rows = await getAvailabilityReport(settings.monitoringRetentionDays);
   sendCsv(res, "labops-device-availability.csv", toCsv(
     ["device_id", "hostname", "current_status", "monitoring_enabled", "availability_24h_percent", "observed_checks_24h", "availability_7d_percent", "observed_checks_7d", "availability_30d_percent", "observed_checks_30d"],
     rows.map((row) => [row.deviceId, row.hostname, row.currentStatus, row.monitoringEnabled, row.availability24h.percentage, row.availability24h.observedChecks, row.availability7d.percentage, row.availability7d.observedChecks, row.availability30d.percentage, row.availability30d.observedChecks]),
@@ -387,13 +391,15 @@ router.post("/dashboard/check-monitored", async (req, res): Promise<void> => {
 
 router.get("/monitoring", async (_req, res): Promise<void> => {
   await ensureSetup();
+  const settings = await getSettings();
   const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.lastCheckedAt));
   const history = await db.select().from(monitoringHistoryTable).orderBy(desc(monitoringHistoryTable.checkedAt)).limit(100);
   const incidents = await db.select().from(monitoringIncidentsTable).orderBy(desc(monitoringIncidentsTable.startedAt)).limit(100);
   const maintenanceHistory = await db.select().from(maintenanceHistoryTable).orderBy(desc(maintenanceHistoryTable.occurredAt)).limit(100);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
+  const retentionStart = retentionCutoff(Date.now(), settings.monitoringRetentionDays);
   const availabilityHistory = await db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt })
-    .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo));
+    .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, retentionStart));
   const windows = [
     ["24h", new Date(Date.now() - 86_400_000)],
     ["7d", new Date(Date.now() - 7 * 86_400_000)],
@@ -649,10 +655,11 @@ router.patch("/settings", async (req, res): Promise<void> => {
   const defaultTheme = readString(input.defaultTheme) ?? current.defaultTheme;
   const defaultConfigVendor = readString(input.defaultConfigVendor) ?? current.defaultConfigVendor;
   const pingTimeoutSeconds = Number(input.pingTimeoutSeconds ?? current.pingTimeoutSeconds);
+  const monitoringRetentionDays = Number(input.monitoringRetentionDays ?? current.monitoringRetentionDays);
   const webhookEnabled = input.webhookEnabled === undefined ? current.webhookEnabled : input.webhookEnabled === true;
   const webhookUrl = readString(input.webhookUrl)?.trim() ?? current.webhookUrl;
-  if (!["dark", "light"].includes(defaultTheme) || !CONFIG_VENDORS.includes(defaultConfigVendor as (typeof CONFIG_VENDORS)[number]) || !Number.isInteger(pingTimeoutSeconds) || pingTimeoutSeconds < 1 || pingTimeoutSeconds > 30) {
-    res.status(400).json({ error: "Check the theme, default vendor, and ping timeout values." });
+  if (!["dark", "light"].includes(defaultTheme) || !CONFIG_VENDORS.includes(defaultConfigVendor as (typeof CONFIG_VENDORS)[number]) || !Number.isInteger(pingTimeoutSeconds) || pingTimeoutSeconds < 1 || pingTimeoutSeconds > 30 || !isValidRetentionDays(monitoringRetentionDays)) {
+    res.status(400).json({ error: "Check the theme, default vendor, ping timeout, and retention values." });
     return;
   }
   if (webhookEnabled && !isAllowedWebhookUrl(webhookUrl)) {
@@ -664,6 +671,7 @@ router.patch("/settings", async (req, res): Promise<void> => {
     defaultTheme,
     defaultConfigVendor,
     pingTimeoutSeconds,
+    monitoringRetentionDays,
     webhookEnabled,
     webhookUrl,
     updatedAt: new Date(),

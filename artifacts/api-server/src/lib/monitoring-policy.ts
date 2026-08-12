@@ -21,3 +21,7 @@ export function isDeviceDue(lastCheckedAt: Date | null, intervalSeconds: number,
 export function retentionCutoff(nowMs: number, retentionDays: number): Date {
   return new Date(nowMs - retentionDays * 86_400_000);
 }
+
+export function isValidRetentionDays(value: number): boolean {
+  return Number.isInteger(value) && value >= 30 && value <= 365;
+}
