@@ -25,3 +25,7 @@ export function retentionCutoff(nowMs: number, retentionDays: number): Date {
 export function isValidRetentionDays(value: number): boolean {
   return Number.isInteger(value) && value >= 30 && value <= 365;
 }
+
+export function isRetentionPreviewCurrent(expectedDays: number, currentDays: number): boolean {
+  return isValidRetentionDays(expectedDays) && expectedDays === currentDays;
+}
