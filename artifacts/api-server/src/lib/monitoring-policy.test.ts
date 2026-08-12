@@ -6,6 +6,7 @@ import { availabilityForWindow, incidentDurationSeconds } from "./availability-p
 import { isAllowedWebhookUrl } from "./webhook-policy";
 import { isWebhookRetryDue, nextWebhookAttempt } from "./webhook-retry-policy";
 import { isDeviceInMaintenance, isScheduledMaintenanceActive } from "./maintenance-policy";
+import { toCsv } from "./csv";
 
 describe("monitoring state policy", () => {
   it("keeps the first two failures unknown", () => {
@@ -131,5 +132,15 @@ describe("webhook retry policy", () => {
     assert.equal(isWebhookRetryDue("retrying", 1, dueAt, now), true);
     assert.equal(isWebhookRetryDue("delivered", 1, dueAt, now), false);
     assert.equal(isWebhookRetryDue("retrying", 3, dueAt, now), false);
+  });
+});
+
+describe("CSV export policy", () => {
+  it("escapes delimiters, quotes, and newlines", () => {
+    assert.equal(toCsv(["name"], [["router, \"core\"\nlab"]]), "name\r\n\"router, \"\"core\"\"\nlab\"\r\n");
+  });
+
+  it("neutralizes spreadsheet formulas", () => {
+    assert.equal(toCsv(["value"], [["=1+1"], ["@SUM(A1:A2)"]]), "value\r\n'=1+1\r\n'@SUM(A1:A2)\r\n");
   });
 });
