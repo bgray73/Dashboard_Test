@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import collectorRouter from "./routes/collector";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -26,6 +27,7 @@ app.use(
   }),
 );
 app.use(cors());
+app.use("/api/collector/v1", express.json({ limit: "16kb" }), collectorRouter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -4,14 +4,14 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export type ReachabilityResult = { status: "online" | "offline" | "unknown"; latencyMs: number | null; message: string };
-export type ReachabilityProviderId = "local-icmp";
+export type ReachabilityProviderId = "local-icmp" | "collector-icmp";
 export type ReachabilityProviderMetadata = {
   id: ReachabilityProviderId;
   label: string;
   description: string;
   capabilities: {
     protocol: "icmp";
-    executionLocation: "api-host";
+    executionLocation: "api-host" | "collector";
     supportsLatency: true;
     requiresSystemBinary: "ping";
     availability: "runtime-detected";
