@@ -1,5 +1,5 @@
 import { and, desc, eq, lt } from "drizzle-orm";
-import { db, devicesTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
+import { db, devicesTable, incidentActivityTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
 import { logger } from "./logger";
 import { performPing } from "./reachability";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
@@ -39,6 +39,7 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
           deviceId: device.id, startedAt: checkedAt, lastFailureAt: checkedAt,
           peakFailures: failures, errorMessage: result.message,
         }).returning();
+        await tx.insert(incidentActivityTable).values({ incidentId: created.id, eventType: "opened", actor: "System", note: result.message, occurredAt: checkedAt });
         notifications.push({ incidentId: created.id, payload: {
           event: "incident.opened", occurredAt: checkedAt.toISOString(), incidentId: created.id,
           device: { id: device.id, hostname: device.hostname, managementIp: device.managementIp },
@@ -55,6 +56,7 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
           durationSeconds,
           resolutionReason: "recovered",
         }).where(eq(monitoringIncidentsTable.id, incident.id));
+        await tx.insert(incidentActivityTable).values({ incidentId: incident.id, eventType: "resolved", actor: "System", note: "Device recovered.", occurredAt: checkedAt });
         notifications.push({ incidentId: incident.id, payload: {
           event: "incident.resolved", occurredAt: checkedAt.toISOString(), incidentId: incident.id,
           device: { id: device.id, hostname: device.hostname, managementIp: device.managementIp },
@@ -85,11 +87,14 @@ export async function resolveIncidentsForMaintenance(deviceId: number, resolvedA
   const incidents = await db.select().from(monitoringIncidentsTable)
     .where(and(eq(monitoringIncidentsTable.deviceId, deviceId), eq(monitoringIncidentsTable.status, "open")));
   for (const incident of incidents) {
-    await db.update(monitoringIncidentsTable).set({
-      status: "resolved", resolvedAt,
-      durationSeconds: incidentDurationSeconds(incident.startedAt, resolvedAt),
-      resolutionReason: "maintenance",
-    }).where(eq(monitoringIncidentsTable.id, incident.id));
+    await db.transaction(async (tx) => {
+      await tx.update(monitoringIncidentsTable).set({
+        status: "resolved", resolvedAt,
+        durationSeconds: incidentDurationSeconds(incident.startedAt, resolvedAt),
+        resolutionReason: "maintenance",
+      }).where(eq(monitoringIncidentsTable.id, incident.id));
+      await tx.insert(incidentActivityTable).values({ incidentId: incident.id, eventType: "resolved", actor: "System", note: "Resolved for maintenance.", occurredAt: resolvedAt });
+    });
   }
 }
 

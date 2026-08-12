@@ -14,6 +14,7 @@ LabOps is a dark-first console for home and network labs. It combines device inv
 - Scheduler visibility, maintenance audit history, dashboard counts, and monitoring filters
 - Per-device check history and open/resolved incident records
 - Incident acknowledgment with operator notes and a durable activity trail
+- Incident workspace with response forms, activity timelines, and action-state filters
 - Optional incident-open and recovery webhooks with delivery history and test delivery
 - Configuration generation for Cisco IOS/IOS-XE, Cisco NX-OS, Juniper Junos, and Arista EOS
 - SNMPv3, Syslog, NTP, and NetFlow/IPFIX configuration output
@@ -118,4 +119,4 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Current scope
 
-LabOps Phase 8 uses small in-process schedulers plus PostgreSQL monitoring history, incident acknowledgment/activity, scheduled maintenance, maintenance audit events, and durable webhook delivery state. The Monitoring view reports enabled, due, and maintenance-paused device counts together with its next due time and operator filters. Availability is check-based rather than an SLA-grade time-series calculation. Maintenance scheduling is per device and stores one window at a time. Webhook retries are bounded and single-process; there is no external queue or distributed claim mechanism. It does not include SNMP collection, email/SMS, authentication, or RBAC. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
+LabOps Phase 9 uses small in-process schedulers plus PostgreSQL monitoring history, an incident response workspace, scheduled maintenance, maintenance audit events, and durable webhook delivery state. The Monitoring view reports enabled, due, and maintenance-paused device counts together with its next due time and operator filters. Availability is check-based rather than an SLA-grade time-series calculation. Maintenance scheduling is per device and stores one window at a time. Webhook retries are bounded and single-process; there is no external queue or distributed claim mechanism. It does not include SNMP collection, email/SMS, authentication, or RBAC. Hosted containers may not permit ICMP; in that case, failed checks are reported honestly and never mocked as successful.
