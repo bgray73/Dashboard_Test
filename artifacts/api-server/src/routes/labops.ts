@@ -4,6 +4,7 @@ import {
   applicationSettingsTable,
   db,
   devicesTable,
+  incidentActivityTable,
   maintenanceHistoryTable,
   monitoringHistoryTable,
   monitoringIncidentsTable,
@@ -372,6 +373,31 @@ router.get("/incidents", async (req, res): Promise<void> => {
   const query = db.select().from(monitoringIncidentsTable);
   const rows = conditions.length ? await query.where(and(...conditions as [ReturnType<typeof eq>, ...ReturnType<typeof eq>[]])).orderBy(desc(monitoringIncidentsTable.startedAt)).limit(200) : await query.orderBy(desc(monitoringIncidentsTable.startedAt)).limit(200);
   res.json(rows);
+});
+
+router.get("/incidents/:id/activity", async (req, res): Promise<void> => {
+  const id = readId(req.params.id);
+  if (!id) { res.status(400).json({ error: "Incident ID must be a positive number." }); return; }
+  res.json(await db.select().from(incidentActivityTable).where(eq(incidentActivityTable.incidentId, id)).orderBy(desc(incidentActivityTable.occurredAt)).limit(100));
+});
+
+router.patch("/incidents/:id/acknowledgment", async (req, res): Promise<void> => {
+  const id = readId(req.params.id);
+  if (!id) { res.status(400).json({ error: "Incident ID must be a positive number." }); return; }
+  const actor = readString(req.body?.actor)?.trim();
+  const note = readString(req.body?.note)?.trim();
+  if (!actor || actor.length > 100) { res.status(400).json({ error: "Operator name is required and must be 100 characters or fewer." }); return; }
+  if (note && note.length > 1000) { res.status(400).json({ error: "Incident note must be 1000 characters or fewer." }); return; }
+  const [existing] = await db.select().from(monitoringIncidentsTable).where(eq(monitoringIncidentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Incident not found." }); return; }
+  if (existing.status !== "open") { res.status(409).json({ error: "Only open incidents can be acknowledged." }); return; }
+  const now = new Date();
+  const updated = await db.transaction(async (tx) => {
+    const [incident] = await tx.update(monitoringIncidentsTable).set({ acknowledgedAt: now, acknowledgedBy: actor, operatorNote: note || null }).where(eq(monitoringIncidentsTable.id, id)).returning();
+    await tx.insert(incidentActivityTable).values({ incidentId: id, eventType: existing.acknowledgedAt ? "acknowledgment_updated" : "acknowledged", actor, note: note || null, occurredAt: now });
+    return incident;
+  });
+  res.json(updated);
 });
 
 router.get("/devices/:id/monitoring-history", async (req, res): Promise<void> => {

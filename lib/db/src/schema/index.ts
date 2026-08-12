@@ -24,3 +24,4 @@ export * from "./monitoring-history";
 export * from "./monitoring-incidents";
 export * from "./notification-deliveries";
 export * from "./maintenance-history";
+export * from "./incident-activity";
