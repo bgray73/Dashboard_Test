@@ -4,6 +4,7 @@ import {
   applicationSettingsTable,
   db,
   devicesTable,
+  maintenanceHistoryTable,
   monitoringHistoryTable,
   monitoringIncidentsTable,
   notificationDeliveriesTable,
@@ -15,6 +16,7 @@ import { availabilityForWindow } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
 import { isDeviceInMaintenance } from "../lib/maintenance-policy";
+import { isDeviceDue } from "../lib/monitoring-policy";
 
 const router: IRouter = Router();
 
@@ -97,6 +99,11 @@ function readNullableDate(value: unknown): Date | null | undefined {
   if (typeof value !== "string") return undefined;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function sameInstant(left?: Date | string | null, right?: Date | string | null): boolean {
+  if (!left && !right) return true;
+  return Boolean(left && right && new Date(left).getTime() === new Date(right).getTime());
 }
 
 function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: string } {
@@ -285,6 +292,7 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
       .where(eq(monitoringIncidentsTable.status, "open")),
   ]);
   const availability24h = availabilityForWindow(recentHistory, dayAgo);
+  const now = new Date();
   res.json({
     totalDevices: devices.length,
     onlineDevices: devices.filter((device) => device.lastStatus === "online").length,
@@ -294,6 +302,8 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     networkDevices: devices.filter((device) => ["Router", "Switch", "Firewall", "Wireless"].includes(device.deviceType)).length,
     openIncidents: openIncidents.length,
     availability24h: availability24h.percentage,
+    activeMaintenance: devices.filter((device) => isDeviceInMaintenance(device, now)).length,
+    upcomingMaintenance: devices.filter((device) => !isDeviceInMaintenance(device, now) && device.maintenanceStartsAt && new Date(device.maintenanceStartsAt).getTime() > now.getTime()).length,
   });
 });
 
@@ -319,6 +329,7 @@ router.get("/monitoring", async (_req, res): Promise<void> => {
   const devices = await db.select().from(devicesTable).orderBy(desc(devicesTable.lastCheckedAt));
   const history = await db.select().from(monitoringHistoryTable).orderBy(desc(monitoringHistoryTable.checkedAt)).limit(100);
   const incidents = await db.select().from(monitoringIncidentsTable).orderBy(desc(monitoringIncidentsTable.startedAt)).limit(100);
+  const maintenanceHistory = await db.select().from(maintenanceHistoryTable).orderBy(desc(maintenanceHistoryTable.occurredAt)).limit(100);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
   const availabilityHistory = await db.select({ deviceId: monitoringHistoryTable.deviceId, status: monitoringHistoryTable.status, checkedAt: monitoringHistoryTable.checkedAt })
     .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, thirtyDaysAgo));
@@ -329,7 +340,27 @@ router.get("/monitoring", async (_req, res): Promise<void> => {
   ] as const;
   const availability = Object.fromEntries(windows.map(([key, start]) => [key, availabilityForWindow(availabilityHistory, start)]));
   const deviceAvailability = Object.fromEntries(devices.map((device) => [device.id, Object.fromEntries(windows.map(([key, start]) => [key, availabilityForWindow(availabilityHistory.filter((sample) => sample.deviceId === device.id), start)]))]));
-  res.json({ devices, history, incidents, availability, deviceAvailability });
+  const now = new Date();
+  const enabledDevices = devices.filter((device) => device.monitoringEnabled);
+  const activeDevices = enabledDevices.filter((device) => !isDeviceInMaintenance(device, now));
+  const nextDueTimes = activeDevices.map((device) => device.lastCheckedAt ? new Date(device.lastCheckedAt).getTime() + device.monitoringIntervalSeconds * 1000 : now.getTime());
+  const scheduler = {
+    serverTime: now.toISOString(),
+    enabledDevices: enabledDevices.length,
+    pausedForMaintenance: enabledDevices.length - activeDevices.length,
+    dueDevices: activeDevices.filter((device) => isDeviceDue(device.lastCheckedAt, device.monitoringIntervalSeconds, now.getTime())).length,
+    nextDueAt: nextDueTimes.length ? new Date(Math.max(now.getTime(), Math.min(...nextDueTimes))).toISOString() : null,
+  };
+  res.json({ devices, history, incidents, maintenanceHistory, availability, deviceAvailability, scheduler });
+});
+
+router.get("/maintenance-history", async (req, res): Promise<void> => {
+  await ensureSetup();
+  const deviceId = req.query.deviceId === undefined ? undefined : readId(req.query.deviceId);
+  if (req.query.deviceId !== undefined && !deviceId) { res.status(400).json({ error: "Device ID must be a positive number." }); return; }
+  const query = db.select().from(maintenanceHistoryTable);
+  const rows = deviceId ? await query.where(eq(maintenanceHistoryTable.deviceId, deviceId)).orderBy(desc(maintenanceHistoryTable.occurredAt)).limit(200) : await query.orderBy(desc(maintenanceHistoryTable.occurredAt)).limit(200);
+  res.json(rows);
 });
 
 router.get("/incidents", async (req, res): Promise<void> => {
@@ -412,7 +443,18 @@ router.patch("/devices/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error });
     return;
   }
-  const [device] = await db.update(devicesTable).set({ ...parsed.data, updatedAt: new Date() }).where(eq(devicesTable.id, id)).returning();
+  const [existing] = await db.select().from(devicesTable).where(eq(devicesTable.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Device not found." }); return; }
+  const occurredAt = new Date();
+  const device = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(devicesTable).set({ ...parsed.data, updatedAt: occurredAt }).where(eq(devicesTable.id, id)).returning();
+    const events: Array<typeof maintenanceHistoryTable.$inferInsert> = [];
+    if (existing.maintenanceMode !== updated.maintenanceMode) events.push({ deviceId: id, eventType: updated.maintenanceMode ? "manual_enabled" : "manual_disabled", occurredAt });
+    const scheduleChanged = !sameInstant(existing.maintenanceStartsAt, updated.maintenanceStartsAt) || !sameInstant(existing.maintenanceEndsAt, updated.maintenanceEndsAt);
+    if (scheduleChanged) events.push({ deviceId: id, eventType: updated.maintenanceStartsAt && updated.maintenanceEndsAt ? "schedule_set" : "schedule_cleared", occurredAt, maintenanceStartsAt: updated.maintenanceStartsAt, maintenanceEndsAt: updated.maintenanceEndsAt });
+    if (events.length) await tx.insert(maintenanceHistoryTable).values(events);
+    return updated;
+  });
   if (!device) {
     res.status(404).json({ error: "Device not found." });
     return;
