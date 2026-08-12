@@ -12,7 +12,7 @@ import {
   savedConfigurationsTable,
 } from "@workspace/db";
 import { isIpv4OrHostname, performPing } from "../lib/reachability";
-import { cleanupMonitoringHistory, getRetentionStatus, recordDeviceCheck, resolveIncidentsForMaintenance } from "../lib/monitoring";
+import { cleanupMonitoringHistory, getRetentionStatus, recordDeviceCheck, resolveIncidentsForMaintenance, RetentionPreviewStaleError } from "../lib/monitoring";
 import { availabilityForWindow, availabilityReport } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
 import { attemptWebhookDelivery, sendWebhook } from "../lib/webhook-notifications";
@@ -660,8 +660,13 @@ router.post("/settings/retention-cleanup", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Retention changed after this cleanup preview. Refresh the preview before deleting history.", status: await getRetentionStatus() });
     return;
   }
-  const result = await cleanupMonitoringHistory();
-  res.json({ ...result, status: await getRetentionStatus() });
+  try {
+    const result = await cleanupMonitoringHistory(expectedRetentionDays);
+    res.json(result);
+  } catch (error) {
+    if (!(error instanceof RetentionPreviewStaleError)) throw error;
+    res.status(409).json({ error: error.message, status: await getRetentionStatus() });
+  }
 });
 
 router.patch("/settings", async (req, res): Promise<void> => {

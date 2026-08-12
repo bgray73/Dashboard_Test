@@ -8,8 +8,15 @@ import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
 import { isDeviceInMaintenance } from "./maintenance-policy";
 
 let polling = false;
-let retentionCleanup: Promise<{ retentionDays: number; cutoff: string; completedAt: string; deletedRows: number }> | null = null;
+let retentionCleanupQueue: Promise<void> = Promise.resolve();
 let lastRetentionCleanup: { completedAt: string; deletedRows: number } | null = null;
+
+export class RetentionPreviewStaleError extends Error {
+  constructor() {
+    super("Retention changed after this cleanup preview. Refresh the preview before deleting history.");
+    this.name = "RetentionPreviewStaleError";
+  }
+}
 
 async function retentionDays() {
   const [settings] = await db.select({ days: applicationSettingsTable.monitoringRetentionDays }).from(applicationSettingsTable).limit(1);
@@ -26,17 +33,39 @@ export async function getRetentionStatus() {
   return { retentionDays: days, cutoff: cutoff.toISOString(), eligibleRows: eligible.rows, retainedRows: retained.rows, oldestRetainedCheckAt: retained.oldestCheckAt, lastCleanup: lastRetentionCleanup };
 }
 
-export async function cleanupMonitoringHistory() {
-  if (retentionCleanup) return retentionCleanup;
-  retentionCleanup = (async () => {
-    const days = await retentionDays();
+export async function cleanupMonitoringHistory(expectedRetentionDays?: number) {
+  const cleanup = retentionCleanupQueue.then(async () => {
+    const result = await db.transaction(async (tx) => {
+    const [settings] = await tx.select({ days: applicationSettingsTable.monitoringRetentionDays })
+      .from(applicationSettingsTable).limit(1).for("update");
+    const days = settings?.days ?? 30;
+    if (expectedRetentionDays !== undefined && expectedRetentionDays !== days) throw new RetentionPreviewStaleError();
     const cutoff = retentionCutoff(Date.now(), days);
-    const [eligible] = await db.select({ rows: count() }).from(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
-    await db.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
-    lastRetentionCleanup = { completedAt: new Date().toISOString(), deletedRows: eligible.rows };
-    return { retentionDays: days, cutoff: cutoff.toISOString(), ...lastRetentionCleanup };
-  })().finally(() => { retentionCleanup = null; });
-  return retentionCleanup;
+    const [eligible] = await tx.select({ rows: count() }).from(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
+    await tx.delete(monitoringHistoryTable).where(lt(monitoringHistoryTable.checkedAt, cutoff));
+    const [retained] = await tx.select({ rows: count(), oldestCheckAt: min(monitoringHistoryTable.checkedAt) })
+      .from(monitoringHistoryTable).where(gte(monitoringHistoryTable.checkedAt, cutoff));
+    const completedAt = new Date().toISOString();
+    return {
+      retentionDays: days,
+      cutoff: cutoff.toISOString(),
+      completedAt,
+      deletedRows: eligible.rows,
+      status: {
+        retentionDays: days,
+        cutoff: cutoff.toISOString(),
+        eligibleRows: 0,
+        retainedRows: retained.rows,
+        oldestRetainedCheckAt: retained.oldestCheckAt,
+        lastCleanup: { completedAt, deletedRows: eligible.rows },
+      },
+    };
+    });
+    lastRetentionCleanup = { completedAt: result.completedAt, deletedRows: result.deletedRows };
+    return result;
+  });
+  retentionCleanupQueue = cleanup.then(() => undefined, () => undefined);
+  return cleanup;
 }
 
 export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated") {
