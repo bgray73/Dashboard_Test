@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gte, lt, min } from "drizzle-orm";
 import { applicationSettingsTable, db, devicesTable, incidentActivityTable, monitoringHistoryTable, monitoringIncidentsTable } from "@workspace/db";
 import { logger } from "./logger";
-import { performPing } from "./reachability";
+import { activeReachabilityProvider, checkReachability, type ReachabilityProvider } from "./reachability";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { incidentDurationSeconds } from "./availability-policy";
 import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
@@ -68,8 +68,8 @@ export async function cleanupMonitoringHistory(expectedRetentionDays?: number) {
   return cleanup;
 }
 
-export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated") {
-  const result = await performPing(device.managementIp, timeoutSeconds);
+export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated", provider: ReachabilityProvider = activeReachabilityProvider) {
+  const result = await checkReachability(device.managementIp, timeoutSeconds, provider);
   const { consecutiveFailures: failures, effectiveStatus } = calculateMonitoringState(result.status, device.consecutiveFailures);
   const checkedAt = new Date();
   const { updated, notifications } = await db.transaction(async (tx) => {

@@ -11,7 +11,7 @@ import {
   notificationDeliveriesTable,
   savedConfigurationsTable,
 } from "@workspace/db";
-import { isIpv4OrHostname, performPing } from "../lib/reachability";
+import { activeReachabilityProvider, checkReachability, isIpv4OrHostname, reachabilityProviders } from "../lib/reachability";
 import { cleanupMonitoringHistory, getRetentionStatus, recordDeviceCheck, resolveIncidentsForMaintenance, RetentionPreviewStaleError } from "../lib/monitoring";
 import { availabilityForWindow, availabilityReport } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
@@ -743,7 +743,11 @@ router.post("/tools/ping", async (req, res): Promise<void> => {
     return;
   }
   const settings = await getSettings();
-  res.json({ target, ...(await performPing(target, settings.pingTimeoutSeconds)) });
+  res.json({ target, ...(await checkReachability(target, settings.pingTimeoutSeconds)) });
+});
+
+router.get("/tools/reachability-capabilities", (_req, res) => {
+  res.json({ activeProvider: activeReachabilityProvider.metadata, providers: reachabilityProviders });
 });
 
 export default router;
