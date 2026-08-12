@@ -8,6 +8,8 @@ export type Device = {
 };
 export type MonitoringHistory = { id: number; deviceId: number; checkedAt: string; status: string; latencyMs: number | null; errorMessage?: string | null; consecutiveFailures: number; source: string };
 export type MonitoringIncident = { id: number; deviceId: number; startedAt: string; lastFailureAt: string; resolvedAt?: string | null; status: "open" | "resolved"; peakFailures: number; durationSeconds?: number | null; errorMessage?: string | null; resolutionReason?: string | null };
+export type MaintenanceHistory = { id: number; deviceId: number; eventType: string; occurredAt: string; maintenanceStartsAt?: string | null; maintenanceEndsAt?: string | null };
+export type SchedulerSnapshot = { serverTime: string; enabledDevices: number; pausedForMaintenance: number; dueDevices: number; nextDueAt: string | null };
 export type AvailabilityMetric = { percentage: number | null; onlineChecks: number; offlineChecks: number; observedChecks: number };
 export type AvailabilityWindows = Record<"24h" | "7d" | "30d", AvailabilityMetric>;
 export type SavedConfiguration = { id: number; name: string; vendor: string; configurationType: string; associatedDeviceId?: number; generatedConfiguration: string; notes?: string; createdAt?: string; updatedAt?: string; authPassword?: string; privacyPassword?: string };
@@ -30,7 +32,8 @@ export const api = {
   summary: () => request<any>('/dashboard/summary'),
   recent: () => request<any[]>('/dashboard/recent-status'),
   checkMonitored: () => request<any>('/dashboard/check-monitored', { method: 'POST' }),
-  monitoring: () => request<{ devices: Device[]; history: MonitoringHistory[]; incidents: MonitoringIncident[]; availability: AvailabilityWindows; deviceAvailability: Record<number, AvailabilityWindows> }>('/monitoring'),
+  monitoring: () => request<{ devices: Device[]; history: MonitoringHistory[]; incidents: MonitoringIncident[]; maintenanceHistory: MaintenanceHistory[]; availability: AvailabilityWindows; deviceAvailability: Record<number, AvailabilityWindows>; scheduler: SchedulerSnapshot }>('/monitoring'),
+  maintenanceHistory: (deviceId?: number) => request<MaintenanceHistory[]>(`/maintenance-history${deviceId ? `?deviceId=${deviceId}` : ''}`),
   deviceHistory: (id: number) => request<MonitoringHistory[]>(`/devices/${id}/monitoring-history?limit=25`),
   incidents: (deviceId?: number) => request<MonitoringIncident[]>(`/incidents${deviceId ? `?deviceId=${deviceId}` : ''}`),
   saved: () => request<SavedConfiguration[]>('/saved-configurations'),
