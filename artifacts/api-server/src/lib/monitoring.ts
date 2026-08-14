@@ -3,6 +3,7 @@ import { applicationSettingsTable, db, devicesTable, incidentActivityTable, moni
 import { logger } from "./logger";
 import { activeReachabilityProvider, checkReachability, type ReachabilityProvider } from "./reachability";
 import { createCollectorReachabilityProvider } from "./collector-jobs";
+import { runtimeConfig } from "./config";
 import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monitoring-policy";
 import { incidentDurationSeconds } from "./availability-policy";
 import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
@@ -70,9 +71,8 @@ export async function cleanupMonitoringHistory(expectedRetentionDays?: number) {
 }
 
 export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect, timeoutSeconds: number, source: "manual" | "automated", provider: ReachabilityProvider = activeReachabilityProvider) {
-  if (provider === activeReachabilityProvider && process.env.LABOPS_REACHABILITY_PROVIDER === "collector") {
-    const configuredCollectorId = Number(process.env.LABOPS_COLLECTOR_ID);
-    provider = createCollectorReachabilityProvider(device.id, Number.isInteger(configuredCollectorId) && configuredCollectorId > 0 ? configuredCollectorId : undefined);
+  if (provider === activeReachabilityProvider && runtimeConfig.reachabilityProvider === "collector") {
+    provider = createCollectorReachabilityProvider(device.id, runtimeConfig.collectorId);
   }
   const result = await checkReachability(device.managementIp, timeoutSeconds, provider);
   const { consecutiveFailures: failures, effectiveStatus } = calculateMonitoringState(result.status, device.consecutiveFailures);
