@@ -8,6 +8,27 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: labops_test
+          POSTGRES_PASSWORD: labops_test
+          POSTGRES_DB: labops_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U labops_test -d labops_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://labops_test:labops_test@127.0.0.1:5432/labops_test
+      NODE_ENV: test
+      OIDC_ISSUER_URL: https://issuer.example
+      OIDC_CLIENT_ID: labops-test
+      OIDC_CLIENT_SECRET: test-only-placeholder
+      PUBLIC_BASE_URL: http://localhost:5000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -18,6 +39,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/db run push
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run build

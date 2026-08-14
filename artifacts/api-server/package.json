@@ -7,7 +7,7 @@
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "test": "DATABASE_URL=postgresql://127.0.0.1:5432/labops_test tsx --test src/*.test.ts src/lib/*.test.ts",
+    "test": "DATABASE_URL=${DATABASE_URL:-postgresql://127.0.0.1:5432/labops_test} NODE_ENV=test OIDC_ISSUER_URL=https://issuer.example OIDC_CLIENT_ID=labops-test OIDC_CLIENT_SECRET=test-only-placeholder PUBLIC_BASE_URL=http://localhost:5000 tsx --test --test-concurrency=1 src/*.test.ts src/lib/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
