@@ -10,7 +10,9 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and `PUBLIC_BASE_URL`
+- Register `${PUBLIC_BASE_URL}/api/auth/callback` exactly. Replit Auth rollout additionally requires confirmed confidential-client credentials and token auth method; never infer or downgrade this contract.
+- Optional first-user bootstrap requires exact paired `AUTH_BOOTSTRAP_ISSUER` and `AUTH_BOOTSTRAP_SUBJECT`; remove them after the first successful login.
 - Secure defaults: `HOST=127.0.0.1`, `PORT=5000`, no cross-origin browser origins, no trusted proxy
 - Optional deployment env: `CORS_ALLOWED_ORIGINS`, `TRUST_PROXY`, `JSON_BODY_LIMIT`, `URLENCODED_BODY_LIMIT`
 
@@ -38,7 +40,7 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 - Phase 1 performs reachability checks only when explicitly requested. There is no scheduler, polling engine, queue, or collector.
 - Subnet calculation and configuration generation remain client-side; saved configurations and device records use PostgreSQL through Drizzle.
 - SNMPv3 credentials are accepted transiently for generation but are redacted server-side before a saved configuration is persisted.
-- Authentication is not yet implemented. Until the OIDC/Replit Auth hardening phase lands, keep the API on loopback or a tightly controlled trusted LAN.
+- Phase 18 requires provider-neutral OIDC and revocable PostgreSQL-backed browser sessions for the main API. RBAC remains a later phase, so keep the API on loopback or a tightly controlled trusted LAN.
 - Phase 17 centralizes runtime configuration, defaults API binding to loopback, restricts CORS to exact configured origins, rejects broad proxy trust, adds Helmet, and bounds request bodies.
 
 ## Product
@@ -61,6 +63,8 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 - The API server's ping execution is intentionally isolated in one function so a future local collector can replace it. Some hosted containers may not have permission to execute ICMP, in which case the result is explicitly offline rather than silently mocked.
 - The frontend development proxy and API both default to port `5000`; override the proxy only with `API_PROXY_TARGET`.
 - `HOST=0.0.0.0` is an explicit exposure decision. Configure TLS, exact allowed browser origins, and only known proxy addresses before using it.
+- Apply `pnpm --filter @workspace/db run push` before startup; the API fails readiness when authentication tables are absent. Logout revokes local server state even if the identity provider is unavailable.
+- Collector bearer tokens remain a separate authentication domain; browser cookies cannot authenticate collector routes.
 - Restart both `artifacts/api-server: API Server` and `artifacts/labops: web` after server or artifact configuration changes.
 
 ## Pointers
