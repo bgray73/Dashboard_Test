@@ -63,8 +63,14 @@ screenshots/            Application screenshots
 2. Set the PostgreSQL connection string:
 
    ```bash
-   export DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DATABASE'
+   export DATABASE_URL='postgresql://USER:***@HOST:5432/DATABASE'
    ```
+
+   Copy `.env.example` when you need the full set of deployment options. The API
+   defaults to `127.0.0.1:5000`, accepts no cross-origin browser origins, ignores
+   forwarded headers, and limits main API request bodies to `100kb`. LAN exposure
+   must be explicit through `HOST`, an exact `CORS_ALLOWED_ORIGINS` list, and—only
+   behind a known reverse proxy—a narrowly scoped `TRUST_PROXY` list.
 
 3. Apply the development database schema:
 
@@ -84,9 +90,14 @@ screenshots/            Application screenshots
    pnpm --filter @workspace/labops run dev
    ```
 
-The API server listens on port `5000`. Vite prints the frontend URL when it starts.
+The API server listens on port `5000`. Vite prints the frontend URL when it starts
+and proxies `/api` to `http://localhost:5000` by default.
 
-Set `HOST=127.0.0.1` to restrict the API to the local machine. The default remains `0.0.0.0` for container and hosted deployments.
+Set `HOST=0.0.0.0` only when intentional LAN/container exposure is required. The
+secure default is `127.0.0.1`. LabOps still has no main-API authentication or RBAC,
+so do not expose it to an untrusted network. See
+[`docs/security/threat-model.md`](docs/security/threat-model.md) and
+[`docs/security/route-inventory.md`](docs/security/route-inventory.md).
 
 Automated monitoring runs inside the API process, without an external queue. Enabled devices are checked at their configured interval (30 seconds to 24 hours). Three consecutive failed checks are required before a device is marked offline; earlier failures remain unknown. Sustained outages open incidents and successful recovery resolves them. Manual maintenance mode and validated per-device maintenance windows pause automated polling, resolve active incidents, and suppress new incidents until monitoring automatically resumes at the scheduled end. Availability uses observed online/offline checks and excludes unknown results. Monitoring history is retained for 30 days by default; operators can configure 30–365 days in Settings, and cleanup runs daily.
 
@@ -107,6 +118,12 @@ Collector lifecycle remains CLI-only until LabOps has authentication and RBAC. R
 Phase 5 webhooks are optional and disabled by default. Configure them in Settings. Remote destinations must use HTTPS; localhost HTTP is allowed for local testing. LabOps sends JSON for incident opening and recovery, waits up to five seconds, and records the result without storing URL paths or query-string tokens in delivery history. Failed deliveries are retained in PostgreSQL and retried after one minute and five minutes, for a maximum of three automatic attempts. Due retries resume when the API restarts, and operators can retry an unsuccessful delivery immediately from Settings.
 
 ## Validation
+
+Run the automated tests:
+
+```bash
+pnpm run test
+```
 
 Run the full typecheck:
 
@@ -129,6 +146,9 @@ pnpm --filter @workspace/api-spec run codegen
 ## Security notes
 
 - Keep `DATABASE_URL` and future credentials in environment variables or Replit Secrets; never commit them.
+- The main API is currently intended for a trusted network and binds to loopback by default; authentication and RBAC are planned hardening work.
+- Configure CORS with exact origins only. Wildcards and origins containing paths are rejected.
+- Do not enable `TRUST_PROXY` broadly; list only known reverse-proxy addresses or subnets.
 - SNMPv3 authentication and privacy passwords are accepted transiently for configuration generation.
 - Saved SNMPv3 configurations replace entered passwords with `<AUTH_PASSWORD>` and `<PRIV_PASSWORD>` placeholders.
 - Review generated configuration before applying it to production network equipment.

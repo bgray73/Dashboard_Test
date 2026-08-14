@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { activeReachabilityProvider, checkReachability, isIpv4OrHostname, reachabilityProviders } from "../lib/reachability";
 import { collectorProviderMetadata } from "../lib/collector-jobs";
+import { runtimeConfig } from "../lib/config";
 import { cleanupMonitoringHistory, getRetentionStatus, recordDeviceCheck, resolveIncidentsForMaintenance, RetentionPreviewStaleError } from "../lib/monitoring";
 import { availabilityForWindow, availabilityReport } from "../lib/availability-policy";
 import { isAllowedWebhookUrl } from "../lib/webhook-policy";
@@ -748,7 +749,7 @@ router.post("/tools/ping", async (req, res): Promise<void> => {
 });
 
 router.get("/tools/reachability-capabilities", (_req, res) => {
-  const collectorEnabled = process.env.LABOPS_REACHABILITY_PROVIDER === "collector";
+  const collectorEnabled = runtimeConfig.reachabilityProvider === "collector";
   res.json({
     activeProvider: collectorEnabled ? collectorProviderMetadata : activeReachabilityProvider.metadata,
     toolProvider: activeReachabilityProvider.metadata,

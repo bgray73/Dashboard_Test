@@ -14,7 +14,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? '/';
-const apiProxyTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:5001';
+const apiProxyTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:5000';
 
 export default defineConfig({
   base: basePath,
