@@ -12,7 +12,7 @@ it("redacts authentication secrets from structured logs", () => {
       callback();
     },
   });
-  const testLogger = pino({ redact: sensitiveRedactionPaths }, destination);
+  const testLogger = pino({ redact: [...sensitiveRedactionPaths] }, destination);
   testLogger.warn(
     {
       clientSecret: "client-secret-value",
