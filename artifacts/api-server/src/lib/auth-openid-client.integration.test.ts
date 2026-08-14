@@ -111,6 +111,7 @@ async function createIssuer(behavior: IssuerBehavior) {
   let issuer = "";
   let expectedNonce = "";
   let expectedVerifier = "";
+  let rotated = false;
   let discoveryRequests = 0;
   let tokenRequests = 0;
   let jwksRequests = 0;
@@ -125,21 +126,24 @@ async function createIssuer(behavior: IssuerBehavior) {
       jwksRequests += 1;
       if (behavior === "jwks-timeout") return;
       res.setHeader("content-type", "application/json");
-      const keys = [
-        {
-          ...publicJwk,
-          use: "sig",
-          alg: "RS256",
-          kid: "phase18-test",
-        },
-      ];
-      if (behavior === "key-rotation")
-        keys.push({
-          ...rotatedPublicJwk,
-          use: "sig",
-          alg: "RS256",
-          kid: "phase18-rotated",
-        });
+      const keys =
+        behavior === "key-rotation" && rotated
+          ? [
+              {
+                ...rotatedPublicJwk,
+                use: "sig",
+                alg: "RS256",
+                kid: "phase18-rotated",
+              },
+            ]
+          : [
+              {
+                ...publicJwk,
+                use: "sig",
+                alg: "RS256",
+                kid: "phase18-test",
+              },
+            ];
       res.end(
         JSON.stringify({
           keys,
@@ -173,7 +177,6 @@ async function createIssuer(behavior: IssuerBehavior) {
         name: "Approved User",
       };
       if (behavior === "missing-sub") delete claims.sub;
-      const rotated = behavior === "key-rotation" && tokenRequests > 1;
       const header = encode({
         alg: "RS256",
         kid: rotated ? "phase18-rotated" : "phase18-test",
@@ -212,6 +215,9 @@ async function createIssuer(behavior: IssuerBehavior) {
     },
     setExpectedVerifier(value: string) {
       expectedVerifier = value;
+    },
+    rotateSigningKey() {
+      rotated = true;
     },
     counts() {
       return { discoveryRequests, tokenRequests, jwksRequests };
@@ -281,16 +287,29 @@ describe("openid-client v6 protocol integration", () => {
     "wrong-signature",
     "missing-sub",
   ] as const) {
-    it(`rejects a signed token with ${behavior.replaceAll("-", " ")}`, async () => {
+    it(`rejects a signed token with ${behavior.replaceAll("-", " ")} without creating a user or auth session`, async () => {
       const fake = await createIssuer(behavior);
       const protocol = new OpenidClientV6Protocol(settings(fake.issuer));
-      const { result, callback } = await authorization(protocol);
-      fake.setExpectedNonce(result.nonce);
+      const service = new OidcService(pool, protocol, {
+        issuer: fake.issuer,
+        clientAuthMethod: "client_secret_basic",
+        flowTtlSeconds: 600,
+      });
+      const authorizationUrl = await service.beginLogin();
+      fake.setExpectedNonce(authorizationUrl.searchParams.get("nonce")!);
+      const state = authorizationUrl.searchParams.get("state")!;
       await assert.rejects(
-        () => protocol.exchange(callback, result),
+        () =>
+          service.completeCallback(
+            new URL(
+              `http://localhost:5000/api/auth/callback?code=valid&state=${state}`,
+            ),
+            state,
+          ),
         InvalidCallbackError,
       );
       assert.equal(fake.counts().tokenRequests, 1);
+      await assertNoUserOrSession();
     });
   }
 
@@ -366,42 +385,65 @@ describe("openid-client v6 protocol integration", () => {
       "approved",
     );
 
-    const second = await authorization(protocol);
-    fake.setExpectedNonce(second.result.nonce);
-    assert.equal(
-      (await protocol.exchange(second.callback, second.result)).subject,
-      "approved",
-    );
+    fake.rotateSigningKey();
+    const realNow = Date.now;
+    Date.now = () => realNow() + 61_000;
+    try {
+      const second = await authorization(protocol);
+      fake.setExpectedNonce(second.result.nonce);
+      assert.equal(
+        (await protocol.exchange(second.callback, second.result)).subject,
+        "approved",
+      );
+    } finally {
+      Date.now = realNow;
+    }
     assert.deepEqual(fake.counts(), {
       discoveryRequests: 1,
       tokenRequests: 2,
-      jwksRequests: 1,
+      jwksRequests: 2,
     });
   });
 
-  it("rejects a provider authorization error without contacting the token endpoint", async () => {
+  it("rejects a provider authorization error without contacting the token endpoint or creating a session", async () => {
     const fake = await createIssuer("valid");
     const protocol = new OpenidClientV6Protocol(settings(fake.issuer));
-    const { result } = await authorization(protocol);
+    const service = new OidcService(pool, protocol, {
+      issuer: fake.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    const authorizationUrl = await service.beginLogin();
+    const state = authorizationUrl.searchParams.get("state")!;
     const callback = new URL(
-      `http://localhost:5000/api/auth/callback?error=access_denied&error_description=private&state=${result.state}`,
+      `http://localhost:5000/api/auth/callback?error=access_denied&error_description=private&state=${state}`,
     );
     await assert.rejects(
-      () => protocol.exchange(callback, result),
+      () => service.completeCallback(callback, state),
       InvalidCallbackError,
     );
     assert.equal(fake.counts().tokenRequests, 0);
+    await assertNoUserOrSession();
   });
 
   for (const behavior of ["token-timeout", "jwks-timeout"] as const) {
-    it(`bounds and classifies a ${behavior.replace("-", " ")}`, async () => {
+    it(`bounds and classifies a ${behavior.replace("-", " ")} without creating a user or auth session`, async () => {
       const fake = await createIssuer(behavior);
       const protocol = new OpenidClientV6Protocol(settings(fake.issuer, 50));
-      const { result, callback } = await authorization(protocol);
-      fake.setExpectedNonce(result.nonce);
+      const service = new OidcService(pool, protocol, {
+        issuer: fake.issuer,
+        clientAuthMethod: "client_secret_basic",
+        flowTtlSeconds: 600,
+      });
+      const authorizationUrl = await service.beginLogin();
+      fake.setExpectedNonce(authorizationUrl.searchParams.get("nonce")!);
+      const state = authorizationUrl.searchParams.get("state")!;
+      const callback = new URL(
+        `http://localhost:5000/api/auth/callback?code=valid&state=${state}`,
+      );
       const startedAt = Date.now();
       await assert.rejects(
-        () => protocol.exchange(callback, result),
+        () => service.completeCallback(callback, state),
         ProviderUnavailableError,
       );
       assert(
@@ -413,6 +455,7 @@ describe("openid-client v6 protocol integration", () => {
         fake.counts().jwksRequests,
         behavior === "jwks-timeout" ? 1 : 0,
       );
+      await assertNoUserOrSession();
     });
   }
 

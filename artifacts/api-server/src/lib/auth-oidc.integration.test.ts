@@ -139,6 +139,7 @@ describe("OIDC authorization protocol coordination", () => {
       InvalidCallbackError,
     );
     assert.equal(protocol.exchanges.length, 1);
+    await assertNoUserOrSession();
   });
 
   it("allows exactly one winner in a real concurrent callback race", async () => {

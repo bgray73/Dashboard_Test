@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import { it } from "node:test";
-import pino from "pino";
-import { loggerOptions } from "./logger";
+import { createLogger } from "./logger";
 
 it("redacts authentication secrets from structured logs", () => {
   let output = "";
@@ -12,7 +11,7 @@ it("redacts authentication secrets from structured logs", () => {
       callback();
     },
   });
-  const testLogger = pino(loggerOptions, destination);
+  const testLogger = createLogger(destination);
   testLogger.warn(
     {
       clientSecret: "client-secret-value",
@@ -60,7 +59,7 @@ it("redacts secrets from thrown and nested errors", () => {
       callback();
     },
   });
-  const testLogger = pino(loggerOptions, destination);
+  const testLogger = createLogger(destination);
   const nested = new Error("provider failed with thrown-secret");
   Object.assign(nested, {
     clientSecret: "error-property-secret",
@@ -98,4 +97,27 @@ it("redacts secrets from thrown and nested errors", () => {
     "log leaked thrown or nested secrets",
   );
   assert(output.includes("provider failure"));
+});
+
+it("redacts secrets from child logger bindings", () => {
+  let output = "";
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      output += chunk.toString();
+      callback();
+    },
+  });
+  const testLogger = createLogger(destination);
+
+  testLogger
+    .child({
+      clientSecret: "child-client-secret",
+      nested: { accessToken: "child-access-token", safe: "visible" },
+    })
+    .info("child event");
+
+  assert(!output.includes("child-client-secret"));
+  assert(!output.includes("child-access-token"));
+  assert(output.includes("visible"));
+  assert(output.includes("child event"));
 });

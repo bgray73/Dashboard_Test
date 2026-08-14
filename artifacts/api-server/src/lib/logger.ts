@@ -1,4 +1,8 @@
-import pino, { type LoggerOptions } from "pino";
+import pino, {
+  type DestinationStream,
+  type Logger,
+  type LoggerOptions,
+} from "pino";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -56,20 +60,41 @@ export const loggerOptions: LoggerOptions = {
   level: process.env.LOG_LEVEL ?? "info",
   redact: [...sensitiveRedactionPaths],
   formatters: {
+    bindings(bindings) {
+      return sanitizeLogValue(bindings) as Record<string, unknown>;
+    },
     log(object) {
       return sanitizeLogValue(object) as Record<string, unknown>;
     },
   },
 };
 
-export const logger = pino({
-  ...loggerOptions,
-  ...(isProduction
-    ? {}
-    : {
-        transport: {
-          target: "pino-pretty",
-          options: { colorize: true },
-        },
-      }),
-});
+function secureChildBindings(instance: Logger): Logger {
+  const child = instance.child.bind(instance);
+  instance.child = ((bindings, options) =>
+    secureChildBindings(
+      child(sanitizeLogValue(bindings) as Record<string, unknown>, options),
+    )) as Logger["child"];
+  return instance;
+}
+
+export function createLogger(destination?: DestinationStream): Logger {
+  return secureChildBindings(
+    pino(
+      {
+        ...loggerOptions,
+        ...(!destination && !isProduction
+          ? {
+              transport: {
+                target: "pino-pretty",
+                options: { colorize: true },
+              },
+            }
+          : {}),
+      },
+      destination,
+    ),
+  );
+}
+
+export const logger = createLogger();
