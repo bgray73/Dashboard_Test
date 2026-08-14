@@ -34,19 +34,71 @@ const environmentSchema = z
     URLENCODED_BODY_LIMIT: bodyLimitSchema.default("100kb"),
     LABOPS_REACHABILITY_PROVIDER: z.enum(["local-icmp", "collector"]).default("local-icmp"),
     LABOPS_COLLECTOR_ID: z.coerce.number().int().min(1).max(2_147_483_647).optional(),
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    OIDC_ISSUER_URL: z.string().trim().min(1).max(2_048),
+    OIDC_CLIENT_ID: z.string().trim().min(1),
+    OIDC_CLIENT_SECRET: z.string().trim().min(1),
+    OIDC_CLIENT_AUTH_METHOD: z.enum(["client_secret_basic", "client_secret_post"]).default("client_secret_basic"),
+    PUBLIC_BASE_URL: z.string().trim().min(1),
+    AUTH_BOOTSTRAP_ISSUER: z.string().trim().min(1).max(2_048).optional(),
+    AUTH_BOOTSTRAP_SUBJECT: z.string().trim().min(1).max(255).optional(),
+    AUTH_SESSION_IDLE_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1_800),
+    AUTH_SESSION_ABSOLUTE_TTL_SECONDS: z.coerce.number().int().min(1_800).max(604_800).default(43_200),
+    AUTH_FLOW_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(600),
+    OIDC_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
+    AUTH_BYPASS: z.string().optional(),
   })
   .superRefine((environment, context) => {
     if (
       environment.LABOPS_REACHABILITY_PROVIDER === "collector" &&
       environment.LABOPS_COLLECTOR_ID === undefined
     ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["LABOPS_COLLECTOR_ID"],
-        message: "is required when collector reachability is enabled",
-      });
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["LABOPS_COLLECTOR_ID"], message: "is required when collector reachability is enabled" });
+    }
+    for (const [name, raw, originOnly] of [
+      ["OIDC_ISSUER_URL", environment.OIDC_ISSUER_URL, false],
+      ["PUBLIC_BASE_URL", environment.PUBLIC_BASE_URL, true],
+    ] as const) {
+      try {
+        const url = new URL(raw);
+        if (!(["http:", "https:"] as string[]).includes(url.protocol) || url.username || url.password || url.search || url.hash || (originOnly && url.origin !== raw)) {
+          throw new Error("invalid");
+        }
+        if (environment.NODE_ENV === "production" && url.protocol !== "https:") {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: "must use HTTPS in production" });
+        }
+      } catch {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: originOnly ? "must be an exact HTTP(S) origin" : "must be an absolute HTTP(S) URL without query or fragment" });
+      }
+    }
+    if ((environment.AUTH_BOOTSTRAP_ISSUER === undefined) !== (environment.AUTH_BOOTSTRAP_SUBJECT === undefined)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["AUTH_BOOTSTRAP_SUBJECT"], message: "bootstrap issuer and subject must be configured together" });
+    }
+    if (environment.AUTH_BOOTSTRAP_SUBJECT && (environment.AUTH_BOOTSTRAP_SUBJECT === "*" || !/^[\x21-\x7e]+$/.test(environment.AUTH_BOOTSTRAP_SUBJECT))) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["AUTH_BOOTSTRAP_SUBJECT"], message: "must be an exact non-wildcard ASCII subject" });
+    }
+    if (environment.AUTH_SESSION_IDLE_TTL_SECONDS > environment.AUTH_SESSION_ABSOLUTE_TTL_SECONDS) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["AUTH_SESSION_IDLE_TTL_SECONDS"], message: "must not exceed absolute TTL" });
+    }
+    if (environment.AUTH_BYPASS !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["AUTH_BYPASS"], message: "is forbidden" });
     }
   });
+
+export type AuthRuntimeConfig = {
+  issuerUrl: string;
+  clientId: string;
+  clientSecret: string;
+  clientAuthMethod: "client_secret_basic" | "client_secret_post";
+  publicBaseUrl: string;
+  bootstrapIssuer?: string;
+  bootstrapSubject?: string;
+  sessionIdleTtlSeconds: number;
+  sessionAbsoluteTtlSeconds: number;
+  flowTtlSeconds: number;
+  httpTimeoutMs: number;
+  secureCookies: boolean;
+};
 
 export type RuntimeConfig = {
   port: number;
@@ -58,6 +110,7 @@ export type RuntimeConfig = {
   urlencodedBodyLimit: string;
   reachabilityProvider: "local-icmp" | "collector";
   collectorId?: number;
+  auth: AuthRuntimeConfig;
 };
 
 function parseOrigins(value: string | undefined): string[] {
@@ -94,6 +147,20 @@ export function parseRuntimeConfig(environment: NodeJS.ProcessEnv): RuntimeConfi
       urlencodedBodyLimit: result.data.URLENCODED_BODY_LIMIT,
       reachabilityProvider: result.data.LABOPS_REACHABILITY_PROVIDER,
       collectorId: result.data.LABOPS_COLLECTOR_ID,
+      auth: {
+        issuerUrl: result.data.OIDC_ISSUER_URL,
+        clientId: result.data.OIDC_CLIENT_ID,
+        clientSecret: result.data.OIDC_CLIENT_SECRET,
+        clientAuthMethod: result.data.OIDC_CLIENT_AUTH_METHOD,
+        publicBaseUrl: result.data.PUBLIC_BASE_URL,
+        bootstrapIssuer: result.data.AUTH_BOOTSTRAP_ISSUER,
+        bootstrapSubject: result.data.AUTH_BOOTSTRAP_SUBJECT,
+        sessionIdleTtlSeconds: result.data.AUTH_SESSION_IDLE_TTL_SECONDS,
+        sessionAbsoluteTtlSeconds: result.data.AUTH_SESSION_ABSOLUTE_TTL_SECONDS,
+        flowTtlSeconds: result.data.AUTH_FLOW_TTL_SECONDS,
+        httpTimeoutMs: result.data.OIDC_HTTP_TIMEOUT_MS,
+        secureCookies: result.data.NODE_ENV === "production",
+      },
     };
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
