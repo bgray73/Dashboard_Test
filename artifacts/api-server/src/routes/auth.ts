@@ -44,7 +44,7 @@ function sendUnavailable(
   res: Parameters<RequestHandler>[1],
 ) {
   res.set("Retry-After", "30");
-  if (req.accepts(["html", "json"]) === "html") {
+  if (req.get("accept")?.toLowerCase().includes("text/html")) {
     res
       .status(503)
       .type("html")

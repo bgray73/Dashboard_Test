@@ -43,7 +43,11 @@ function sanitizeLogValue(
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      sensitiveKey.test(key) ? "[Redacted]" : sanitizeLogValue(item, seen),
+      sensitiveKey.test(key)
+        ? "[Redacted]"
+        : ["req", "res"].includes(key)
+          ? item
+          : sanitizeLogValue(item, seen),
     ]),
   );
 }
