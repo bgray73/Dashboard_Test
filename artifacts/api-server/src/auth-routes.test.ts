@@ -338,4 +338,21 @@ describe("authentication routes and default guard", () => {
       error: "Identity is not provisioned.",
     });
   });
+
+  it("does not misclassify a local session-store failure as a provider outage", async () => {
+    const deps = fakes();
+    deps.store.issueSession = async () => {
+      throw new Error("database connection detail");
+    };
+    const result = await request(
+      "/api/auth/callback?code=opaque&state=stored",
+      { method: "GET" },
+      deps,
+    );
+    assert.equal(result.response.status, 500);
+    assert.deepEqual(await result.response.json(), {
+      error: "Authentication failed.",
+    });
+    assert.equal(result.response.headers.get("retry-after"), null);
+  });
 });

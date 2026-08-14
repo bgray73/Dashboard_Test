@@ -157,15 +157,27 @@ export function createAuthRouter(
         res.status(400).json({ error: "Invalid authentication callback." });
         return;
       }
-      logger.warn(
+      if (error instanceof ProviderUnavailableError) {
+        logger.warn(
+          {
+            event: "auth_callback",
+            outcome: "provider_unavailable",
+            requestId: req.id,
+          },
+          "Authentication callback unavailable",
+        );
+        sendUnavailable(req, res);
+        return;
+      }
+      logger.error(
         {
           event: "auth_callback",
-          outcome: "provider_unavailable",
+          outcome: "internal_error",
           requestId: req.id,
         },
-        "Authentication callback unavailable",
+        "Authentication callback failed",
       );
-      sendUnavailable(req, res);
+      res.status(500).json({ error: "Authentication failed." });
     }
   });
 
