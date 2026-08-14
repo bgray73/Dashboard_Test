@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
+import { Writable } from "node:stream";
 import { describe, it } from "node:test";
+import type { Logger } from "pino";
 import { createApp, type AuthDependencies } from "./app";
 import { IdentityNotProvisionedError } from "./lib/auth-store";
+import { createLogger } from "./lib/logger";
 import type { RuntimeConfig } from "./lib/runtime-config";
 
 const config: RuntimeConfig = {
@@ -76,8 +79,16 @@ function fakes(): AuthDependencies & {
   };
 }
 
-async function request(path: string, init: RequestInit, deps = fakes()) {
-  const server = createServer(createApp(config, deps));
+async function request(
+  path: string,
+  init: RequestInit,
+  deps = fakes(),
+  production = false,
+  appLogger?: Logger,
+) {
+  const app = createApp(config, deps, appLogger);
+  if (production) app.set("env", "production");
+  const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const address = server.address();
@@ -165,6 +176,89 @@ const protectedRoutes: Array<[string, string]> = [
 ];
 
 describe("authentication routes and default guard", () => {
+  it("contains authentication-store failures without leaking thrown details", async () => {
+    const leakedDetails = [
+      "me-db-sensitive-detail",
+      "logout-db-sensitive-detail",
+      "guard-db-sensitive-detail",
+    ];
+    let stderr = "";
+    let logOutput = "";
+    const appLogger = createLogger(
+      new Writable({
+        write(chunk, _encoding, callback) {
+          logOutput += chunk.toString();
+          callback();
+        },
+      }),
+    );
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += chunk.toString();
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const meDeps = fakes();
+      meDeps.store.lookupSession = async () => {
+        throw new Error(leakedDetails[0]);
+      };
+      const me = await request(
+        "/api/auth/me",
+        { method: "GET", headers: { cookie: "labops_session=valid-token" } },
+        meDeps,
+        true,
+        appLogger,
+      );
+
+      const logoutDeps = fakes();
+      logoutDeps.store.revokeSession = async () => {
+        throw new Error(leakedDetails[1]);
+      };
+      const logout = await request(
+        "/api/auth/logout",
+        {
+          method: "POST",
+          headers: { cookie: "labops_session=valid-token" },
+        },
+        logoutDeps,
+        true,
+        appLogger,
+      );
+
+      const guardDeps = fakes();
+      guardDeps.store.lookupSession = async () => {
+        throw new Error(leakedDetails[2]);
+      };
+      const guard = await request(
+        "/api/dashboard/summary",
+        { method: "GET", headers: { cookie: "labops_session=valid-token" } },
+        guardDeps,
+        true,
+        appLogger,
+      );
+
+      for (const response of [me.response, logout.response, guard.response]) {
+        assert.equal(response.status, 500);
+        assert.deepEqual(await response.json(), {
+          error: "Internal server error.",
+        });
+        assert.equal(response.headers.get("cache-control"), "no-store");
+      }
+      assert.equal(logout.response.headers.get("set-cookie"), null);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    for (const detail of leakedDetails) {
+      assert(!stderr.includes(detail));
+      assert(!logOutput.includes(detail));
+    }
+    assert.match(logOutput, /"event":"request_failure"/);
+    assert.match(logOutput, /"outcome":"internal_error"/);
+  });
+
   it("guards every inventoried main route before handler/database logic", async () => {
     for (const [method, path] of protectedRoutes) {
       const { response, deps } = await request(path, {

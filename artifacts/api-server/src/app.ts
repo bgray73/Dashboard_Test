@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
+import type { Logger } from "pino";
 import { pool } from "@workspace/db";
 import collectorRouter from "./routes/collector";
 import healthRouter from "./routes/health";
@@ -38,13 +39,14 @@ export function createDefaultAuthDependencies(
 export function createApp(
   config: RuntimeConfig,
   injectedAuth?: AuthDependencies,
+  appLogger: Logger = logger,
 ): Express {
   const auth = injectedAuth ?? createDefaultAuthDependencies(config);
   const app: Express = express();
   app.set("trust proxy", config.trustProxy);
   app.use(
     pinoHttp({
-      logger,
+      logger: appLogger,
       serializers: {
         req(req) {
           return {
@@ -104,5 +106,22 @@ export function createApp(
     next(error);
   };
   app.use(payloadTooLargeHandler);
+
+  const finalErrorHandler: ErrorRequestHandler = (_error, req, res, _next) => {
+    req.log.error(
+      {
+        event: "request_failure",
+        outcome: "internal_error",
+        requestId: req.id,
+      },
+      "Unhandled application error",
+    );
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.status(500).json({ error: "Internal server error." });
+  };
+  app.use(finalErrorHandler);
   return app;
 }
