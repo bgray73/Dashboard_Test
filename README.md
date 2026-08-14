@@ -67,7 +67,7 @@ screenshots/            Application screenshots
    export OIDC_ISSUER_URL='https://identity.example'
    export OIDC_CLIENT_ID='labops'
    export OIDC_CLIENT_SECRET='stored-in-your-secret-manager'
-   export PUBLIC_BASE_URL='http://localhost:5000'
+   export PUBLIC_BASE_URL='http://localhost:5173'
    ```
 
    Copy `.env.example` when you need the full set of deployment options. The API
