@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the Phase 17 security boundary for the LabOps API, frontend, PostgreSQL database, local collector, ICMP execution, and outbound incident webhooks. It records current controls and residual risks; it is not a claim that LabOps is safe for public exposure.
+This document describes the security boundary through Phase 18 for the LabOps API, frontend, PostgreSQL database, OIDC authentication, local collector, ICMP execution, and outbound incident webhooks. It records current controls and residual risks; it is not a claim that LabOps is safe for public exposure.
 
 ## Deployment assumption
 
