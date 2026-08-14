@@ -5,17 +5,21 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { pool } from "@workspace/db";
 import {
   InvalidCallbackError,
+  OidcService,
   OpenidClientV6Protocol,
   ProviderUnavailableError,
 } from "./auth-oidc";
 import type { AuthRuntimeConfig } from "./runtime-config";
 
 const signingKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const rotatedSigningKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const untrustedKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const publicJwk = signingKeys.publicKey.export({ format: "jwk" });
+const rotatedPublicJwk = rotatedSigningKeys.publicKey.export({ format: "jwk" });
 const openServers = new Set<ReturnType<typeof createServer>>();
 
 type IssuerBehavior =
@@ -24,6 +28,9 @@ type IssuerBehavior =
   | "wrong-audience"
   | "wrong-signature"
   | "missing-sub"
+  | "pkce-mismatch"
+  | "wrong-issuer"
+  | "key-rotation"
   | "token-timeout"
   | "jwks-timeout";
 
@@ -85,9 +92,25 @@ afterEach(async () => {
   await Promise.all([...openServers].map(close));
 });
 
+beforeEach(async () => {
+  await pool.query(
+    "TRUNCATE oidc_auth_flows, auth_sessions, users RESTART IDENTITY CASCADE",
+  );
+});
+
+async function assertNoUserOrSession() {
+  const result = await pool.query(
+    `SELECT
+       (SELECT count(*)::int FROM users) AS users,
+       (SELECT count(*)::int FROM auth_sessions) AS sessions`,
+  );
+  assert.deepEqual(result.rows[0], { users: 0, sessions: 0 });
+}
+
 async function createIssuer(behavior: IssuerBehavior) {
   let issuer = "";
   let expectedNonce = "";
+  let expectedVerifier = "";
   let discoveryRequests = 0;
   let tokenRequests = 0;
   let jwksRequests = 0;
@@ -102,24 +125,45 @@ async function createIssuer(behavior: IssuerBehavior) {
       jwksRequests += 1;
       if (behavior === "jwks-timeout") return;
       res.setHeader("content-type", "application/json");
+      const keys = [
+        {
+          ...publicJwk,
+          use: "sig",
+          alg: "RS256",
+          kid: "phase18-test",
+        },
+      ];
+      if (behavior === "key-rotation")
+        keys.push({
+          ...rotatedPublicJwk,
+          use: "sig",
+          alg: "RS256",
+          kid: "phase18-rotated",
+        });
       res.end(
         JSON.stringify({
-          keys: [
-            { ...publicJwk, use: "sig", alg: "RS256", kid: "phase18-test" },
-          ],
+          keys,
         }),
       );
       return;
     }
     if (req.url === "/token" && req.method === "POST") {
       tokenRequests += 1;
-      for await (const _chunk of req) {
-        // Consume the request before returning a deterministic provider response.
-      }
+      let body = "";
+      for await (const chunk of req) body += chunk;
       if (behavior === "token-timeout") return;
+      if (
+        behavior === "pkce-mismatch" &&
+        new URLSearchParams(body).get("code_verifier") !== expectedVerifier
+      ) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
       const now = Math.floor(Date.now() / 1_000);
       const claims: Record<string, unknown> = {
-        iss: issuer,
+        iss: behavior === "wrong-issuer" ? `${issuer}/different` : issuer,
         sub: "approved",
         aud: behavior === "wrong-audience" ? "different-client" : "labops-test",
         iat: now,
@@ -129,13 +173,20 @@ async function createIssuer(behavior: IssuerBehavior) {
         name: "Approved User",
       };
       if (behavior === "missing-sub") delete claims.sub;
-      const header = encode({ alg: "RS256", kid: "phase18-test", typ: "JWT" });
+      const rotated = behavior === "key-rotation" && tokenRequests > 1;
+      const header = encode({
+        alg: "RS256",
+        kid: rotated ? "phase18-rotated" : "phase18-test",
+        typ: "JWT",
+      });
       const payload = encode(claims);
       const input = `${header}.${payload}`;
       const key =
         behavior === "wrong-signature"
           ? untrustedKeys.privateKey
-          : signingKeys.privateKey;
+          : rotated
+            ? rotatedSigningKeys.privateKey
+            : signingKeys.privateKey;
       const signature = sign("RSA-SHA256", Buffer.from(input), key).toString(
         "base64url",
       );
@@ -158,6 +209,9 @@ async function createIssuer(behavior: IssuerBehavior) {
     ...running,
     setExpectedNonce(value: string) {
       expectedNonce = value;
+    },
+    setExpectedVerifier(value: string) {
+      expectedVerifier = value;
     },
     counts() {
       return { discoveryRequests, tokenRequests, jwksRequests };
@@ -199,6 +253,28 @@ describe("openid-client v6 protocol integration", () => {
     assert.equal(counts.tokenRequests, 1);
   });
 
+  it("rejects remote insecure endpoints advertised by a loopback issuer", async () => {
+    let issuer = "";
+    const running = await listen((req, res) => {
+      if (req.url === "/.well-known/openid-configuration") {
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            ...discoveryDocument(issuer),
+            token_endpoint: "http://provider.example/token",
+          }),
+        );
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    issuer = running.issuer;
+
+    const protocol = new OpenidClientV6Protocol(settings(issuer));
+    await assert.rejects(() => protocol.discover(), InvalidCallbackError);
+  });
+
   for (const behavior of [
     "nonce-mismatch",
     "wrong-audience",
@@ -217,6 +293,91 @@ describe("openid-client v6 protocol integration", () => {
       assert.equal(fake.counts().tokenRequests, 1);
     });
   }
+
+  it("rejects PKCE mismatch at the real token endpoint without creating a user or auth session", async () => {
+    const fake = await createIssuer("pkce-mismatch");
+    const protocol = new OpenidClientV6Protocol(settings(fake.issuer));
+    const service = new OidcService(pool, protocol, {
+      issuer: fake.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    const authorizationUrl = await service.beginLogin();
+    fake.setExpectedNonce(authorizationUrl.searchParams.get("nonce")!);
+    const persisted = await pool.query<{ pkce_verifier: string }>(
+      "SELECT pkce_verifier FROM oidc_auth_flows",
+    );
+    fake.setExpectedVerifier(persisted.rows[0].pkce_verifier);
+    await pool.query(
+      "UPDATE oidc_auth_flows SET pkce_verifier='deterministically-wrong-verifier'",
+    );
+    const state = authorizationUrl.searchParams.get("state")!;
+
+    await assert.rejects(
+      () =>
+        service.completeCallback(
+          new URL(
+            `http://localhost:5000/api/auth/callback?code=valid&state=${state}`,
+          ),
+          state,
+        ),
+      InvalidCallbackError,
+    );
+
+    assert.equal(fake.counts().tokenRequests, 1);
+    await assertNoUserOrSession();
+  });
+
+  it("rejects a signed token from the wrong issuer without creating a user or auth session", async () => {
+    const fake = await createIssuer("wrong-issuer");
+    const protocol = new OpenidClientV6Protocol(settings(fake.issuer));
+    const service = new OidcService(pool, protocol, {
+      issuer: fake.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    const authorizationUrl = await service.beginLogin();
+    fake.setExpectedNonce(authorizationUrl.searchParams.get("nonce")!);
+    const state = authorizationUrl.searchParams.get("state")!;
+
+    await assert.rejects(
+      () =>
+        service.completeCallback(
+          new URL(
+            `http://localhost:5000/api/auth/callback?code=valid&state=${state}`,
+          ),
+          state,
+        ),
+      InvalidCallbackError,
+    );
+
+    assert.equal(fake.counts().tokenRequests, 1);
+    await assertNoUserOrSession();
+  });
+
+  it("accepts signed JWKS key rotation after an initial verified exchange", async () => {
+    const fake = await createIssuer("key-rotation");
+    const protocol = new OpenidClientV6Protocol(settings(fake.issuer));
+
+    const first = await authorization(protocol);
+    fake.setExpectedNonce(first.result.nonce);
+    assert.equal(
+      (await protocol.exchange(first.callback, first.result)).subject,
+      "approved",
+    );
+
+    const second = await authorization(protocol);
+    fake.setExpectedNonce(second.result.nonce);
+    assert.equal(
+      (await protocol.exchange(second.callback, second.result)).subject,
+      "approved",
+    );
+    assert.deepEqual(fake.counts(), {
+      discoveryRequests: 1,
+      tokenRequests: 2,
+      jwksRequests: 1,
+    });
+  });
 
   it("rejects a provider authorization error without contacting the token endpoint", async () => {
     const fake = await createIssuer("valid");

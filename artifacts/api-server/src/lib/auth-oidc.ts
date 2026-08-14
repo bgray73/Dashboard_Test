@@ -58,6 +58,37 @@ export type OidcMetadata = {
   tokenAuthMethodsSupported: string[];
 };
 
+const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1"]);
+
+function validateDiscoveredEndpointUrls(
+  metadata: oidc.ServerMetadata,
+  allowLoopbackHttp: boolean,
+) {
+  for (const [name, value] of Object.entries(metadata)) {
+    if (
+      typeof value !== "string" ||
+      (name !== "jwks_uri" && !name.endsWith("_endpoint"))
+    )
+      continue;
+    let endpoint: URL;
+    try {
+      endpoint = new URL(value);
+    } catch {
+      throw new InvalidCallbackError();
+    }
+    if (
+      endpoint.protocol !== "https:" &&
+      !(
+        allowLoopbackHttp &&
+        endpoint.protocol === "http:" &&
+        loopbackHostnames.has(endpoint.hostname)
+      )
+    ) {
+      throw new InvalidCallbackError();
+    }
+  }
+}
+
 export interface OidcProtocol {
   discover(): Promise<OidcMetadata>;
   createAuthorization(): Promise<{
@@ -103,8 +134,7 @@ export class OpenidClientV6Protocol implements OidcProtocol {
       };
       const issuer = new URL(this.settings.issuerUrl);
       const isLoopbackHttp =
-        issuer.protocol === "http:" &&
-        ["127.0.0.1", "localhost", "::1"].includes(issuer.hostname);
+        issuer.protocol === "http:" && loopbackHostnames.has(issuer.hostname);
       const config = await oidc.discovery(
         issuer,
         this.settings.clientId,
@@ -120,6 +150,7 @@ export class OpenidClientV6Protocol implements OidcProtocol {
         },
       );
       const source = config.serverMetadata();
+      validateDiscoveredEndpointUrls(source, isLoopbackHttp);
       const metadata: OidcMetadata = {
         issuer: source.issuer,
         authorizationEndpoint: source.authorization_endpoint,

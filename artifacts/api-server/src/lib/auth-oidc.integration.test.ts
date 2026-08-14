@@ -56,6 +56,15 @@ beforeEach(async () =>
   ),
 );
 
+async function assertNoUserOrSession() {
+  const result = await pool.query(
+    `SELECT
+       (SELECT count(*)::int FROM users) AS users,
+       (SELECT count(*)::int FROM auth_sessions) AS sessions`,
+  );
+  assert.deepEqual(result.rows[0], { users: 0, sessions: 0 });
+}
+
 describe("OIDC authorization protocol coordination", () => {
   it("classifies provider callback rejection separately from provider outages", () => {
     const denied = new openidClient.AuthorizationResponseError("denied", {
@@ -167,6 +176,79 @@ describe("OIDC authorization protocol coordination", () => {
         .rows[0].count,
       0,
     );
+  });
+
+  it("rejects a callback with missing state without creating a user or auth session", async () => {
+    const protocol = new FakeProtocol();
+    const service = new OidcService(pool, protocol, {
+      issuer: metadata.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    await service.beginLogin();
+
+    await assert.rejects(
+      () =>
+        service.completeCallback(
+          new URL("https://lab.example/api/auth/callback?code=opaque-code"),
+          "",
+        ),
+      InvalidCallbackError,
+    );
+
+    assert.equal(protocol.exchanges.length, 0);
+    await assertNoUserOrSession();
+  });
+
+  it("rejects a callback with random mismatched state without creating a user or auth session", async () => {
+    const protocol = new FakeProtocol();
+    const service = new OidcService(pool, protocol, {
+      issuer: metadata.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    await service.beginLogin();
+
+    await assert.rejects(
+      () =>
+        service.completeCallback(
+          new URL(
+            "https://lab.example/api/auth/callback?code=opaque-code&state=random-state",
+          ),
+          "random-state",
+        ),
+      InvalidCallbackError,
+    );
+
+    assert.equal(protocol.exchanges.length, 0);
+    await assertNoUserOrSession();
+  });
+
+  it("rejects a callback with expired state without creating a user or auth session", async () => {
+    const protocol = new FakeProtocol();
+    const service = new OidcService(pool, protocol, {
+      issuer: metadata.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    await service.beginLogin();
+    await pool.query(
+      "UPDATE oidc_auth_flows SET created_at=now()-interval '2 seconds', expires_at=now()-interval '1 second'",
+    );
+
+    await assert.rejects(
+      () =>
+        service.completeCallback(
+          new URL(
+            "https://lab.example/api/auth/callback?code=opaque-code&state=stored-state",
+          ),
+          "stored-state",
+        ),
+      InvalidCallbackError,
+    );
+
+    assert.equal(protocol.exchanges.length, 0);
+    await assertNoUserOrSession();
   });
 
   it("fails closed for unsupported discovery and bounds provider failures generically", async () => {

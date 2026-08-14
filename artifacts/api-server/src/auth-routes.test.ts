@@ -244,6 +244,34 @@ describe("authentication routes and default guard", () => {
     });
   });
 
+  it("rejects duplicate callback code and error parameter combinations before session issuance", async () => {
+    for (const query of [
+      "code=first&code=second&state=stored",
+      "error=access_denied&error=server_error&state=stored",
+      "code=opaque&error=access_denied&state=stored",
+    ]) {
+      const deps = fakes();
+      let callbacks = 0;
+      deps.oidc.completeCallback = async () => {
+        callbacks += 1;
+        throw new Error("must not run");
+      };
+
+      const result = await request(
+        `/api/auth/callback?${query}`,
+        { method: "GET" },
+        deps,
+      );
+
+      assert.equal(result.response.status, 400, query);
+      assert.deepEqual(await result.response.json(), {
+        error: "Invalid authentication callback.",
+      });
+      assert.equal(callbacks, 0, query);
+      assert.deepEqual(deps.issuedPrior, [], query);
+    }
+  });
+
   it("rejects an absolute-form callback target before consuming the OIDC flow", async () => {
     const deps = fakes();
     let callbacks = 0;
