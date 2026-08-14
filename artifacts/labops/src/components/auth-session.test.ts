@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 
 import { ApiError, type AuthUser } from "../lib/api";
-import { loadSession, transitionSession, type AuthState } from "./auth-session";
+import {
+  loadSession,
+  performLogout,
+  transitionSession,
+  type AuthState,
+} from "./auth-session";
 
 const user: AuthUser = {
   id: 7,
@@ -44,5 +49,15 @@ it("transitions an active session to expired or anonymous without fetching", () 
   assert.deepEqual(
     transitionSession({ status: "unavailable" }, { type: "retry" }),
     { status: "loading" },
+  );
+});
+
+it("does not claim logout succeeded when server revocation fails", async () => {
+  assert.equal(await performLogout(async () => undefined), "logged-out");
+  assert.equal(
+    await performLogout(async () => {
+      throw new Error("network unavailable");
+    }),
+    "failed",
   );
 });

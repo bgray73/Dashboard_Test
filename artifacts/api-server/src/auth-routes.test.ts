@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { describe, it } from "node:test";
 import { createApp, type AuthDependencies } from "./app";
 import { IdentityNotProvisionedError } from "./lib/auth-store";
@@ -89,6 +89,40 @@ async function request(path: string, init: RequestInit, deps = fakes()) {
       }),
       deps,
     };
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+async function rawRequestTarget(target: string, deps = fakes()) {
+  const server = createServer(createApp(config, deps));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    assert(address && typeof address === "object");
+    const response = await new Promise<{ status: number; body: string }>(
+      (resolve, reject) => {
+        const req = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: address.port,
+            method: "GET",
+            path: target,
+          },
+          (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk) => {
+              body += chunk;
+            });
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      },
+    );
+    return { response, deps };
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -208,6 +242,45 @@ describe("authentication routes and default guard", () => {
     assert.deepEqual(await duplicate.response.json(), {
       error: "Invalid authentication callback.",
     });
+  });
+
+  it("rejects an absolute-form callback target before consuming the OIDC flow", async () => {
+    const deps = fakes();
+    let callbacks = 0;
+    deps.oidc.completeCallback = async () => {
+      callbacks += 1;
+      throw new Error("must not run");
+    };
+    const result = await rawRequestTarget(
+      "https://evil.example/api/auth/callback?code=opaque&state=stored",
+      deps,
+    );
+    assert.equal(result.response.status, 400);
+    assert.deepEqual(JSON.parse(result.response.body), {
+      error: "Invalid authentication callback.",
+    });
+    assert.equal(callbacks, 0);
+  });
+
+  it("renders a generic browser-safe provider outage with retry actions", async () => {
+    const deps = fakes();
+    deps.oidc.beginLogin = async () => {
+      throw new Error("upstream secret details");
+    };
+    const failed = await request(
+      "/api/auth/login",
+      { method: "GET", headers: { accept: "text/html" } },
+      deps,
+    );
+    assert.equal(failed.response.status, 503);
+    assert.match(
+      failed.response.headers.get("content-type") ?? "",
+      /text\/html/,
+    );
+    const html = await failed.response.text();
+    assert.match(html, /Authentication is temporarily unavailable/);
+    assert.match(html, /href="\/api\/auth\/login"/);
+    assert.doesNotMatch(html, /upstream|OIDC|callback|provider|secret/i);
   });
 
   it("returns local me during provider outage and clears invalid sessions", async () => {

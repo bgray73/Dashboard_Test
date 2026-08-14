@@ -6,7 +6,12 @@ import {
   sessionEvents,
   type AuthUser,
 } from "@/lib/api";
-import { loadSession, transitionSession, type AuthState } from "./auth-session";
+import {
+  loadSession,
+  performLogout,
+  transitionSession,
+  type AuthState,
+} from "./auth-session";
 
 export type { AuthState } from "./auth-session";
 
@@ -84,11 +89,13 @@ export function AuthScreen({
 export function SessionShell({
   user,
   loggingOut,
+  logoutFailed = false,
   onLogout,
   children,
 }: {
   user: AuthUser;
   loggingOut: boolean;
+  logoutFailed?: boolean;
   onLogout: () => void;
   children: ReactNode;
 }) {
@@ -113,6 +120,14 @@ export function SessionShell({
           {loggingOut ? "Signing out…" : "Sign out"}
         </button>
       </aside>
+      {logoutFailed ? (
+        <p
+          role="alert"
+          className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          Sign out failed. Your session is still active; try again.
+        </p>
+      ) : null}
       {children}
     </>
   );
@@ -121,6 +136,7 @@ export function SessionShell({
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutFailed, setLogoutFailed] = useState(false);
 
   const refresh = useCallback(() => {
     setState((current) => transitionSession(current, { type: "retry" }));
@@ -142,21 +158,28 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setLoggingOut(true);
-    void api
-      .logout()
-      .catch(() => undefined)
-      .finally(() => {
-        setLoggingOut(false);
+    setLogoutFailed(false);
+    void performLogout(api.logout).then((outcome) => {
+      setLoggingOut(false);
+      if (outcome === "logged-out") {
         setState((current) =>
           transitionSession(current, { type: "logged-out" }),
         );
-      });
+      } else {
+        setLogoutFailed(true);
+      }
+    });
   }, []);
 
   if (state.status !== "authenticated")
     return <AuthScreen state={state} onRetry={refresh} />;
   return (
-    <SessionShell user={state.user} loggingOut={loggingOut} onLogout={logout}>
+    <SessionShell
+      user={state.user}
+      loggingOut={loggingOut}
+      logoutFailed={logoutFailed}
+      onLogout={logout}
+    >
       {children}
     </SessionShell>
   );

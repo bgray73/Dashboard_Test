@@ -39,6 +39,36 @@ function noStore(res: Parameters<RequestHandler>[1]) {
   res.set("Cache-Control", "no-store");
 }
 
+function sendUnavailable(
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+) {
+  res.set("Retry-After", "30");
+  if (req.accepts(["html", "json"]) === "html") {
+    res
+      .status(503)
+      .type("html")
+      .send(
+        '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>LabOps sign-in unavailable</title><main><h1>Authentication is temporarily unavailable</h1><p>Try again in a moment.</p><p><a href="/api/auth/login">Try sign in again</a> · <a href="/">Return to LabOps</a></p></main>',
+      );
+    return;
+  }
+  res.status(503).json({ error: "Authentication provider unavailable." });
+}
+
+function callbackUrlFromRequest(
+  originalUrl: string,
+  publicBaseUrl: string,
+): URL | undefined {
+  const marker = "/api/auth/callback";
+  if (originalUrl !== marker && !originalUrl.startsWith(`${marker}?`))
+    return undefined;
+  const url = new URL(marker, publicBaseUrl);
+  const query = originalUrl.slice(marker.length);
+  if (query) url.search = query.slice(1);
+  return url;
+}
+
 export function createAuthRouter(
   config: AuthRuntimeConfig,
   deps: AuthRouteDependencies,
@@ -69,16 +99,17 @@ export function createAuthRouter(
         },
         "Authentication login unavailable",
       );
-      res
-        .set("Retry-After", "30")
-        .status(503)
-        .json({ error: "Authentication provider unavailable." });
+      sendUnavailable(req, res);
     }
   });
 
   router.get("/callback", async (req, res) => {
     noStore(res);
-    const url = new URL(req.originalUrl, config.publicBaseUrl);
+    const url = callbackUrlFromRequest(req.originalUrl, config.publicBaseUrl);
+    if (!url) {
+      res.status(400).json({ error: "Invalid authentication callback." });
+      return;
+    }
     const states = url.searchParams.getAll("state");
     const codes = url.searchParams.getAll("code");
     const errors = url.searchParams.getAll("error");
@@ -134,10 +165,7 @@ export function createAuthRouter(
         },
         "Authentication callback unavailable",
       );
-      res
-        .set("Retry-After", "30")
-        .status(503)
-        .json({ error: "Authentication provider unavailable." });
+      sendUnavailable(req, res);
     }
   });
 

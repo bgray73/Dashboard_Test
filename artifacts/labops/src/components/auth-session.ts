@@ -35,3 +35,14 @@ export async function loadSession(
     return { status: "unavailable" };
   }
 }
+
+export async function performLogout(
+  logout: () => Promise<void>,
+): Promise<"logged-out" | "failed"> {
+  try {
+    await logout();
+    return "logged-out";
+  } catch {
+    return "failed";
+  }
+}

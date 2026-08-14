@@ -78,3 +78,18 @@ it("renders the authenticated user and a logout control with app content", () =>
   assert.match(markup, /Dashboard content/);
   assert.match(markup, /<button[^>]*>Sign out<\/button>/);
 });
+
+it("keeps authenticated content and reports a failed logout", () => {
+  const markup = renderToStaticMarkup(
+    createElement(SessionShell, {
+      user: { id: 7, displayName: "Lab Operator" },
+      loggingOut: false,
+      logoutFailed: true,
+      onLogout: () => undefined,
+      children: createElement("div", null, "Dashboard content"),
+    }),
+  );
+  assert.match(markup, /Dashboard content/);
+  assert.match(markup, /role="alert"/);
+  assert.match(markup, /Sign out failed/);
+});

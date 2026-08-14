@@ -46,3 +46,4 @@ jobs:
         env:
           PORT: 5000
           BASE_PATH: /
+      - run: pnpm audit --prod
