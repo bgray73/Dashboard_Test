@@ -20,14 +20,34 @@ export type PingResult = { status: string; latencyMs: number | null; message: st
 export type ReportsSummary = { devices: number; incidents: number; monitoringChecksRetained: number; retentionDays: number; generatedAt: string };
 export type AvailabilityReportRow = { deviceId: number; hostname: string; currentStatus: string; monitoringEnabled: boolean; availability24h: AvailabilityMetric; availability7d: AvailabilityMetric; availability30d: AvailabilityMetric };
 export type AvailabilityReport = { generatedAt: string; retentionDays: number; devices: AvailabilityReportRow[] };
+export type AuthUser = { id: number; displayName: string; email?: string | null };
 export type RetentionStatus = { retentionDays: number; cutoff: string; eligibleRows: number; retainedRows: number; oldestRetainedCheckAt?: string | null; lastCleanup?: { completedAt: string; deletedRows: number } | null };
 const base = '/api';
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+
+export const SESSION_EXPIRED_EVENT = "labops:session-expired";
+export const sessionEvents = new EventTarget();
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+type RequestDependencies = { events?: EventTarget; notifySessionExpired?: boolean };
+export async function request<T>(path: string, options?: RequestInit, dependencies: RequestDependencies = {}): Promise<T> {
   const response = await fetch(`${base}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) }, ...options });
-  if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`);
+  if (!response.ok) {
+    if (response.status === 401 && dependencies.notifySessionExpired !== false) {
+      (dependencies.events ?? sessionEvents).dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
+    throw new ApiError((await response.text()) || `Request failed (${response.status})`, response.status);
+  }
   return response.status === 204 ? undefined as T : response.json();
 }
 export const api = {
+  me: () => request<AuthUser>('/auth/me', undefined, { notifySessionExpired: false }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
   devices: () => request<Device[]>('/devices'),
   device: (id: number) => request<Device>(`/devices/${id}`),
   createDevice: (data: Partial<Device>) => request<Device>('/devices', { method: 'POST', body: JSON.stringify(data) }),
