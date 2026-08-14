@@ -13,6 +13,18 @@ const baseConfig: RuntimeConfig = {
   jsonBodyLimit: "100kb",
   urlencodedBodyLimit: "100kb",
   reachabilityProvider: "local-icmp",
+  auth: {
+    issuerUrl: "https://issuer.example",
+    clientId: "labops-test",
+    clientSecret: "test-only-placeholder",
+    clientAuthMethod: "client_secret_basic",
+    publicBaseUrl: "http://localhost:5000",
+    sessionIdleTtlSeconds: 1_800,
+    sessionAbsoluteTtlSeconds: 43_200,
+    flowTtlSeconds: 600,
+    httpTimeoutMs: 5_000,
+    secureCookies: false,
+  },
 };
 
 async function request(
@@ -52,7 +64,10 @@ describe("API HTTP hardening", () => {
   });
 
   it("allows only an exact configured CORS origin", async () => {
-    const config = { ...baseConfig, corsAllowedOrigins: ["https://lab.example"] };
+    const config = {
+      ...baseConfig,
+      corsAllowedOrigins: ["https://lab.example"],
+    };
     const allowed = await request(config, "/api/healthz", {
       headers: { Origin: "https://lab.example" },
     });
@@ -60,7 +75,10 @@ describe("API HTTP hardening", () => {
       headers: { Origin: "https://evil.example" },
     });
 
-    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://lab.example");
+    assert.equal(
+      allowed.headers.get("access-control-allow-origin"),
+      "https://lab.example",
+    );
     assert.equal(unlisted.headers.get("access-control-allow-origin"), null);
   });
 
@@ -69,7 +87,10 @@ describe("API HTTP hardening", () => {
 
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
-    assert.match(response.headers.get("content-security-policy") ?? "", /default-src 'self'/);
+    assert.match(
+      response.headers.get("content-security-policy") ?? "",
+      /default-src 'self'/,
+    );
     assert.equal(response.headers.get("x-powered-by"), null);
   });
 
@@ -122,21 +143,37 @@ describe("API HTTP hardening", () => {
     const response = await request(
       baseConfig,
       "/__request-info",
-      { headers: { "x-forwarded-for": "203.0.113.10", "x-forwarded-proto": "https" } },
+      {
+        headers: {
+          "x-forwarded-for": "203.0.113.10",
+          "x-forwarded-proto": "https",
+        },
+      },
       true,
     );
 
-    assert.deepEqual(await response.json(), { ip: "127.0.0.1", protocol: "http" });
+    assert.deepEqual(await response.json(), {
+      ip: "127.0.0.1",
+      protocol: "http",
+    });
   });
 
   it("honors forwarded headers from an explicitly trusted proxy", async () => {
     const response = await request(
       { ...baseConfig, trustProxy: ["loopback"] },
       "/__request-info",
-      { headers: { "x-forwarded-for": "203.0.113.10", "x-forwarded-proto": "https" } },
+      {
+        headers: {
+          "x-forwarded-for": "203.0.113.10",
+          "x-forwarded-proto": "https",
+        },
+      },
       true,
     );
 
-    assert.deepEqual(await response.json(), { ip: "203.0.113.10", protocol: "https" });
+    assert.deepEqual(await response.json(), {
+      ip: "203.0.113.10",
+      protocol: "https",
+    });
   });
 });
