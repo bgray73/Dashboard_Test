@@ -11,6 +11,8 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Secure defaults: `HOST=127.0.0.1`, `PORT=5000`, no cross-origin browser origins, no trusted proxy
+- Optional deployment env: `CORS_ALLOWED_ORIGINS`, `TRUST_PROXY`, `JSON_BODY_LIMIT`, `URLENCODED_BODY_LIMIT`
 
 ## Stack
 
@@ -32,11 +34,12 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 
 ## Architecture decisions
 
-- LabOps uses a straightforward internal Express router mounted at `/api`; it intentionally does not expand the existing OpenAPI contract for this focused product.
+- LabOps uses a straightforward internal Express router mounted at `/api`; later hardening phases will make OpenAPI authoritative.
 - Phase 1 performs reachability checks only when explicitly requested. There is no scheduler, polling engine, queue, or collector.
 - Subnet calculation and configuration generation remain client-side; saved configurations and device records use PostgreSQL through Drizzle.
 - SNMPv3 credentials are accepted transiently for generation but are redacted server-side before a saved configuration is persisted.
-- Authentication is not part of the initial release. If it becomes necessary, use Replit Auth rather than custom authentication.
+- Authentication is not yet implemented. Until the OIDC/Replit Auth hardening phase lands, keep the API on loopback or a tightly controlled trusted LAN.
+- Phase 17 centralizes runtime configuration, defaults API binding to loopback, restricts CORS to exact configured origins, rejects broad proxy trust, adds Helmet, and bounds request bodies.
 
 ## Product
 
@@ -56,6 +59,8 @@ LabOps is a dark-first home and network lab console for device inventory, manual
 ## Gotchas
 
 - The API server's ping execution is intentionally isolated in one function so a future local collector can replace it. Some hosted containers may not have permission to execute ICMP, in which case the result is explicitly offline rather than silently mocked.
+- The frontend development proxy and API both default to port `5000`; override the proxy only with `API_PROXY_TARGET`.
+- `HOST=0.0.0.0` is an explicit exposure decision. Configure TLS, exact allowed browser origins, and only known proxy addresses before using it.
 - Restart both `artifacts/api-server: API Server` and `artifacts/labops: web` after server or artifact configuration changes.
 
 ## Pointers
