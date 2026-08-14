@@ -132,6 +132,43 @@ describe("OIDC authorization protocol coordination", () => {
     assert.equal(protocol.exchanges.length, 1);
   });
 
+  it("allows exactly one winner in a real concurrent callback race", async () => {
+    const protocol = new FakeProtocol();
+    const service = new OidcService(pool, protocol, {
+      issuer: metadata.issuer,
+      clientAuthMethod: "client_secret_basic",
+      flowTtlSeconds: 600,
+    });
+    await service.beginLogin();
+    const callback = new URL(
+      "https://lab.example/api/auth/callback?code=opaque-code&state=stored-state",
+    );
+    const results = await Promise.allSettled([
+      service.completeCallback(callback, "stored-state"),
+      service.completeCallback(callback, "stored-state"),
+    ]);
+    const fulfilled = results.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof service.completeCallback>>
+      > => result.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    assert.equal(fulfilled.length, 1);
+    assert.equal(fulfilled[0].value.subject, "approved");
+    assert.equal(rejected.length, 1);
+    assert(rejected[0].reason instanceof InvalidCallbackError);
+    assert.equal(protocol.exchanges.length, 1);
+    assert.equal(
+      (await pool.query("SELECT count(*)::int count FROM oidc_auth_flows"))
+        .rows[0].count,
+      0,
+    );
+  });
+
   it("fails closed for unsupported discovery and bounds provider failures generically", async () => {
     const unsupported: OidcProtocol = {
       ...new FakeProtocol(),

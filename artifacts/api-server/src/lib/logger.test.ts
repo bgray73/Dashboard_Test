@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import { it } from "node:test";
 import pino from "pino";
-import { sensitiveRedactionPaths } from "./logger";
+import { loggerOptions } from "./logger";
 
 it("redacts authentication secrets from structured logs", () => {
   let output = "";
@@ -12,7 +12,7 @@ it("redacts authentication secrets from structured logs", () => {
       callback();
     },
   });
-  const testLogger = pino({ redact: [...sensitiveRedactionPaths] }, destination);
+  const testLogger = pino(loggerOptions, destination);
   testLogger.warn(
     {
       clientSecret: "client-secret-value",
@@ -50,4 +50,52 @@ it("redacts authentication secrets from structured logs", () => {
     assert(!output.includes(secret), `log leaked ${secret}`);
   }
   assert(output.includes("safe event"));
+});
+
+it("redacts secrets from thrown and nested errors", () => {
+  let output = "";
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      output += chunk.toString();
+      callback();
+    },
+  });
+  const testLogger = pino(loggerOptions, destination);
+  const nested = new Error("provider failed with thrown-secret");
+  Object.assign(nested, {
+    clientSecret: "error-property-secret",
+    cause: {
+      oidc: {
+        authorizationCode: "nested-code-secret",
+        state: "nested-state-secret",
+      },
+    },
+  });
+  testLogger.error(
+    {
+      err: nested,
+      context: {
+        oidc: {
+          clientSecret: "deep-client-secret",
+          nonce: "deep-nonce-secret",
+        },
+      },
+    },
+    "provider failure",
+  );
+
+  const secrets = [
+    "thrown-secret",
+    "error-property-secret",
+    "nested-code-secret",
+    "nested-state-secret",
+    "deep-client-secret",
+    "deep-nonce-secret",
+  ];
+  assert.deepEqual(
+    secrets.filter((secret) => output.includes(secret)),
+    [],
+    "log leaked thrown or nested secrets",
+  );
+  assert(output.includes("provider failure"));
 });

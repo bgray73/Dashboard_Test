@@ -25,14 +25,26 @@ export function classifyOidcExchangeError(
     error instanceof ProviderUnavailableError
   )
     return error;
-  if (
-    error instanceof TypeError ||
-    (error instanceof DOMException &&
-      ["AbortError", "TimeoutError"].includes(error.name)) ||
-    error instanceof oidc.WWWAuthenticateChallengeError ||
-    (error instanceof oidc.ResponseBodyError && error.status >= 500)
-  ) {
-    return new ProviderUnavailableError();
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current instanceof TypeError ||
+      (current instanceof DOMException &&
+        ["AbortError", "TimeoutError"].includes(current.name)) ||
+      current instanceof oidc.WWWAuthenticateChallengeError ||
+      (current instanceof oidc.ResponseBodyError && current.status >= 500) ||
+      (current instanceof Error &&
+        (["AbortError", "TimeoutError"].includes(current.name) ||
+          (current as Error & { code?: string }).code === "OAUTH_TIMEOUT"))
+    ) {
+      return new ProviderUnavailableError();
+    }
+    current =
+      current instanceof Error
+        ? (current as Error & { cause?: unknown }).cause
+        : undefined;
   }
   return new InvalidCallbackError();
 }
@@ -101,7 +113,10 @@ export class OpenidClientV6Protocol implements OidcProtocol {
         {
           [oidc.customFetch]: customFetch,
           timeout: Math.ceil(this.settings.httpTimeoutMs / 1_000),
-          ...(isLoopbackHttp ? { execute: [oidc.allowInsecureRequests] } : {}),
+          execute: [
+            oidc.enableNonRepudiationChecks,
+            ...(isLoopbackHttp ? [oidc.allowInsecureRequests] : []),
+          ],
         },
       );
       const source = config.serverMetadata();
