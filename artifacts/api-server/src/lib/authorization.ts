@@ -190,8 +190,11 @@ export function createAuthorizationMiddleware(
         administrator: 3,
       };
 
-      const userLevel = roleHierarchy[sessionUser.role];
-      const requiredLevel = roleHierarchy[requiredRole as Role];
+
+      
+      const userLevel = roleHierarchy[sessionUser.role as Role] || 0;
+      const requiredLevel = roleHierarchy[requiredRole as Role] || 1;
+main
       
       if (userLevel < requiredLevel) {
         logger.warn({
