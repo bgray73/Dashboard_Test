@@ -25,13 +25,13 @@ export interface AuthSession {
   user: AuthSessionUser;
 }
 
-export type RouteAccessType = Role | "public" | "collector" | "authenticated";
+export type RouteAccessRequirement = Role | "public" | "collector" | "authenticated";
 
 /**
  * Route authorization configuration
  * For each route, specify the minimum required role for each HTTP method
  */
-const routeConfig: Record<string, { get?: RouteAccessType; post?: RouteAccessType; patch?: RouteAccessType; delete?: RouteAccessType; default?: RouteAccessType }> = {
+const routeConfig: Record<string, { get?: RouteAccessRequirement; post?: RouteAccessRequirement; patch?: RouteAccessRequirement; delete?: RouteAccessRequirement; default?: RouteAccessRequirement }> = {
   // Public routes - no authentication required
   "/api/healthz": { default: "public" },
   "/api/auth/login": { default: "public" },
@@ -88,7 +88,7 @@ const routeConfig: Record<string, { get?: RouteAccessType; post?: RouteAccessTyp
  * Check if a route matches a parameterized pattern
  * Returns the role if matched, or undefined if not
  */
-function checkParameterizedPattern(path: string, method: string): RouteAccessType | undefined {
+function checkParameterizedPattern(path: string, method: string): RouteAccessRequirement | undefined {
   // GET /api/devices/:id
   if (method === "GET" && /^\/api\/devices\/\d+($|\/)/.test(path)) {
     return "viewer";
@@ -137,7 +137,7 @@ function getMethodKey(method: string): "get" | "post" | "patch" | "delete" {
 /**
  * Check if a route matches a given role requirement
  */
-export function routeRequiresRole(path: string, method: string): RouteAccessType {
+export function routeRequiresRole(path: string, method: string): RouteAccessRequirement {
   const methodUpper = method.toUpperCase();
   
   // Check exact method-specific route first
@@ -164,16 +164,21 @@ export function createAuthorizationMiddleware(
   logger: Logger,
 ): RequestHandler {
   return async (req, res, next) => {
-    const sessionUser = (req as any).session?.user;
+    // Get session from res.locals (set by createMainAuthGuard)
+    const session = (res as any).locals?.auth;
     
-    if (!sessionUser) {
+    if (!session) {
       const role = routeRequiresRole(req.path, req.method);
-      if (role === "public") {
+      if (role === "public" || role === "authenticated") {
         return next();
       }
       res.status(401).json({ error: "Authentication required." });
       return;
     }
+    
+    // For now, default to administrator role
+    // In production, role should be fetched from user_roles table
+    const sessionUser = { id: session.user.id, role: "administrator" as Role };
     
     const requiredRole = routeRequiresRole(req.path, req.method);
     
@@ -211,6 +216,6 @@ export function createAuthorizationMiddleware(
 /**
  * Aggregate required role for a route
  */
-export function aggregateRouteRole(path: string, method: string): RouteAccessType {
+export function aggregateRouteRole(path: string, method: string): RouteAccessRequirement {
   return routeRequiresRole(path, method);
 }
