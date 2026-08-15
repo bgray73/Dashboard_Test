@@ -16,6 +16,7 @@ import {
 import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
+import { createAuthorizationMiddleware } from "./lib/authorization";
 import type { RuntimeConfig } from "./lib/runtime-config";
 
 export type AuthDependencies = AuthRouteDependencies;
@@ -86,6 +87,10 @@ export function createApp(
   app.use("/api", healthRouter);
   app.use("/api/auth", createAuthRouter(config.auth, auth));
   app.use("/api", createMainAuthGuard(config.auth, auth));
+  
+  // Phase 19: Role-based authorization middleware
+  app.use(createAuthorizationMiddleware(appLogger));
+  
   app.use("/api", labopsRouter);
 
   const payloadTooLargeHandler: ErrorRequestHandler = (
