@@ -30,6 +30,9 @@ export async function checkAuthSchemaReady(pool: Pool): Promise<void> {
     users: ["id", "identity_issuer", "identity_subject"],
     auth_sessions: ["user_id", "token_hash", "idle_expires_at", "absolute_expires_at", "revoked_at"],
     oidc_auth_flows: ["state_hash", "state", "nonce", "pkce_verifier", "issuer", "expires_at"],
+    // Phase 20: Role management tables
+    roles: ["id", "role"],
+    user_role_memberships: ["user_id", "role_id"],
   };
   const result = await pool.query<{ table_name: string; column_name: string }>(
     "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name = ANY($1::text[])",
@@ -98,7 +101,7 @@ export class AuthStore {
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
-  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: number; displayName: string | null; email: string | null } } | undefined> {
+  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: number; displayName: string | null; email: string | null; roles: string[] } } | undefined> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
     const result = await this.pool.query<{ session_id: number; id: number; display_name: string | null; email: string | null }>(
       `SELECT s.id AS session_id,u.id,u.display_name,u.email FROM auth_sessions s JOIN users u ON u.id=s.user_id
@@ -107,12 +110,22 @@ export class AuthStore {
     );
     const row = result.rows[0];
     if (!row) return undefined;
+    
+    // Phase 20: Load user roles from database
+    const rolesResult = await this.pool.query<{ role: string }>(
+      `SELECT r.role FROM user_role_memberships r
+       JOIN roles ro ON ro.id = r.role_id
+       WHERE r.user_id = $1`,
+      [row.id],
+    );
+    const roles = rolesResult.rows.map(r => r.role);
+    
     await this.pool.query(
       `UPDATE auth_sessions SET last_seen_at=now(), idle_expires_at=LEAST(now()+($2*interval '1 second'),absolute_expires_at)
        WHERE id=$1 AND last_seen_at<=now()-interval '5 minutes'`,
       [row.session_id, this.ttl.idleTtlSeconds],
     );
-    return { sessionId: row.session_id, user: { id: row.id, displayName: row.display_name, email: row.email } };
+    return { sessionId: row.session_id, user: { id: row.id, displayName: row.display_name, email: row.email, roles } };
   }
 
   async revokeSession(token: string): Promise<void> {
