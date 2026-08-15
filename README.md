@@ -60,10 +60,14 @@ screenshots/            Application screenshots
    pnpm install
    ```
 
-2. Set the PostgreSQL connection string:
+2. Set PostgreSQL and OIDC configuration:
 
    ```bash
    export DATABASE_URL='postgresql://USER:***@HOST:5432/DATABASE'
+   export OIDC_ISSUER_URL='https://identity.example'
+   export OIDC_CLIENT_ID='labops'
+   export OIDC_CLIENT_SECRET='stored-in-your-secret-manager'
+   export PUBLIC_BASE_URL='http://localhost:5173'
    ```
 
    Copy `.env.example` when you need the full set of deployment options. The API
@@ -90,12 +94,18 @@ screenshots/            Application screenshots
    pnpm --filter @workspace/labops run dev
    ```
 
+Register `${PUBLIC_BASE_URL}/api/auth/callback` exactly with the identity provider.
+The first user is admitted only when both `AUTH_BOOTSTRAP_ISSUER` and
+`AUTH_BOOTSTRAP_SUBJECT` exactly match that identity; remove both values after the
+first successful login. Startup fails if the authentication tables are missing, so
+apply the schema before starting the API.
+
 The API server listens on port `5000`. Vite prints the frontend URL when it starts
 and proxies `/api` to `http://localhost:5000` by default.
 
 Set `HOST=0.0.0.0` only when intentional LAN/container exposure is required. The
-secure default is `127.0.0.1`. LabOps still has no main-API authentication or RBAC,
-so do not expose it to an untrusted network. See
+secure default is `127.0.0.1`. LabOps requires OIDC and revocable server-side sessions,
+but role-based authorization is a later phase; keep deployments on a trusted network. See
 [`docs/security/threat-model.md`](docs/security/threat-model.md) and
 [`docs/security/route-inventory.md`](docs/security/route-inventory.md).
 
@@ -145,8 +155,10 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Security notes
 
-- Keep `DATABASE_URL` and future credentials in environment variables or Replit Secrets; never commit them.
-- The main API is currently intended for a trusted network and binds to loopback by default; authentication and RBAC are planned hardening work.
+- Keep `DATABASE_URL`, `OIDC_CLIENT_SECRET`, and all credentials in environment variables or a secret manager; never commit them.
+- Every main application route requires a valid server-side session. Logout revokes server state; an identity-provider outage does not invalidate an existing local session.
+- The collector API retains its separate scoped bearer-token boundary and never accepts browser session cookies as collector authentication.
+- Authentication is not authorization. Until route-level RBAC lands, authenticated users share the same application permissions; keep deployments on a trusted network.
 - Configure CORS with exact origins only. Wildcards and origins containing paths are rejected.
 - Do not enable `TRUST_PROXY` broadly; list only known reverse-proxy addresses or subnets.
 - SNMPv3 authentication and privacy passwords are accepted transiently for configuration generation.
@@ -155,4 +167,4 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Current scope
 
-LabOps Phase 15 uses small in-process schedulers plus PostgreSQL monitoring history, configurable retention with previewed manual cleanup, an incident response workspace, per-device availability reports, bounded operational CSV exports, scheduled maintenance, maintenance audit events, durable webhook delivery state, and provider-neutral reachability. Native ICMP on the API host remains the default; an optional authenticated local collector can poll outbound for inventory-bound ICMP jobs. Collector enrollment and revocation are CLI-only because LabOps still has no authentication or RBAC. Availability is check-based rather than SLA-grade and excludes unknown checks. Retention cleanup is serialized with settings changes in PostgreSQL. Webhook retries remain bounded and single-process; there is no external queue, arbitrary remote execution, SNMP collection, email/SMS, network discovery, or device credentials. Hosted environments that block ICMP report failures honestly and never mock success.
+LabOps uses small in-process schedulers plus PostgreSQL monitoring history, configurable retention with previewed manual cleanup, an incident response workspace, per-device availability reports, bounded operational CSV exports, scheduled maintenance, maintenance audit events, durable webhook delivery state, provider-neutral reachability, and OIDC-authenticated server-side browser sessions. Native ICMP on the API host remains the default; an optional authenticated local collector can poll outbound for inventory-bound ICMP jobs. Collector enrollment and revocation remain CLI-only until route-level RBAC is available. Availability is check-based rather than SLA-grade and excludes unknown checks. Retention cleanup is serialized with settings changes in PostgreSQL. Webhook retries remain bounded and single-process; there is no external queue, arbitrary remote execution, SNMP collection, email/SMS, network discovery, or device credentials. Hosted environments that block ICMP report failures honestly and never mock success.
