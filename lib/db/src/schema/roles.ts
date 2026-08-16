@@ -1,4 +1,5 @@
-import { pgEnum, pgTable, serial, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { usersTable } from "./users";
 
 export const userRolesEnum = pgEnum("user_roles", ["admin", "operator", "viewer"]);
 
@@ -17,9 +18,9 @@ export const userRoleMembershipsTable = pgTable(
   "user_role_memberships",
   {
     id: serial("id").primaryKey(),
-    userId: serial("user_id").notNull(),
-    roleId: serial("role_id").notNull(),
-    grantedBy: serial("granted_by"),
+    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    roleId: integer("role_id").notNull().references(() => rolesTable.id, { onDelete: "cascade" }),
+    grantedBy: integer("granted_by").references(() => usersTable.id),
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
   },

@@ -10,6 +10,7 @@ export const monitoringHistoryTable = pgTable("monitoring_history", {
   errorMessage: text("error_message"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   source: text("source").notNull().default("automated"),
+  idempotencyIdentifier: text("idempotency_identifier"),
 }, (table) => [
   index("monitoring_history_device_checked_idx").on(table.deviceId, table.checkedAt),
   index("monitoring_history_checked_idx").on(table.checkedAt),
