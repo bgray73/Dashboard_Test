@@ -13,6 +13,12 @@ import {
   createMainAuthGuard,
   type AuthRouteDependencies,
 } from "./routes/auth";
+import { createRoleManagementRouter } from "./routes/roles";
+import {
+  listCollectors as listCollectorsHandler,
+  getCollector as getCollectorHandler,
+  revokeCollector as revokeCollectorHandler,
+} from "./routes/collector-admin";
 import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
@@ -87,11 +93,17 @@ export function createApp(
   app.use("/api", healthRouter);
   app.use("/api/auth", createAuthRouter(config.auth, auth));
   app.use("/api", createMainAuthGuard(config.auth, auth));
-  
+
   // Phase 19: Role-based authorization middleware
   app.use(createAuthorizationMiddleware(appLogger));
-  
+
   app.use("/api", labopsRouter);
+
+  // Phase 23: Register collector management routes (administrator only)
+  // Authorization middleware enforces administrator role requirement
+  app.get("/api/collectors", listCollectorsHandler);
+  app.get("/api/collectors/:id", getCollectorHandler);
+  app.delete("/api/collectors/:id", revokeCollectorHandler);
 
   const payloadTooLargeHandler: ErrorRequestHandler = (
     error,

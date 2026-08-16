@@ -32,7 +32,7 @@ export type RouteAccessRequirement = Role | "public" | "collector" | "authentica
  * Role hierarchy for comparing privileges
  * viewer (1) < operator (2) < administrator (3)
  */
-const roleHierarchy: Record<Role, number> = {
+export const roleHierarchy: Record<Role, number> = {
   viewer: 1,
   operator: 2,
   administrator: 3,
