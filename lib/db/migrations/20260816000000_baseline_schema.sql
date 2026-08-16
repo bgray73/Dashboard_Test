@@ -12,7 +12,7 @@
 
 -- Users table (OIDC identity)
 CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
+  id TEXT PRIMARY KEY,
   identity_issuer TEXT NOT NULL,
   identity_subject TEXT NOT NULL,
   email TEXT,
@@ -37,8 +37,8 @@ CREATE TABLE devices (
   notes TEXT NOT NULL DEFAULT '',
   monitoring_enabled BOOLEAN NOT NULL DEFAULT false,
   maintenance_mode BOOLEAN NOT NULL DEFAULT false,
-  maintenance_starts_at TIMESTAMPTZ,
-  maintenance_ends_at TIMESTAMPTZ,
+  monitoring_starts_at TIMESTAMPTZ,
+  monitoring_ends_at TIMESTAMPTZ,
   monitoring_interval_seconds INTEGER NOT NULL DEFAULT 60,
   last_status TEXT NOT NULL DEFAULT 'unknown',
   last_checked_at TIMESTAMPTZ,
@@ -58,7 +58,8 @@ CREATE TABLE monitoring_history (
   latency_ms INTEGER,
   error_message TEXT,
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  source TEXT NOT NULL DEFAULT 'automated'
+  source TEXT NOT NULL DEFAULT 'automated',
+  idempotency_identifier TEXT
 );
 
 -- Monitoring incidents
@@ -75,7 +76,8 @@ CREATE TABLE monitoring_incidents (
   peak_failures INTEGER NOT NULL DEFAULT 0,
   duration_seconds INTEGER,
   error_message TEXT,
-  resolution_reason TEXT
+  resolution_reason TEXT,
+  idempotency_identifier TEXT
 );
 
 -- Incident activity trail
@@ -147,7 +149,7 @@ CREATE TABLE roles (
 
 CREATE TABLE user_role_memberships (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
   granted_by INTEGER REFERENCES users(id),
   granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -158,10 +160,10 @@ CREATE TABLE user_role_memberships (
 -- Auth sessions
 CREATE TABLE auth_sessions (
   id TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
-  revoked BOOLEAN NOT NULL DEFAULT false,
+  revoked TEXT NOT NULL DEFAULT 'false',
   user_agent TEXT,
   ip_address TEXT
 );
@@ -186,6 +188,12 @@ CREATE TABLE saved_configurations (
   name TEXT NOT NULL,
   configuration_type TEXT NOT NULL,
   content TEXT NOT NULL,
+  generated_configuration TEXT NOT NULL,
+  vendor TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  associated_device_id INTEGER REFERENCES devices(id),
+  auth_password_digest TEXT,
+  privacy_password_digest TEXT,
   created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -220,14 +228,12 @@ CREATE TABLE maintenance_history (
 );
 
 -- ============================================
--- Phase 22: Job Leadership (SNMP/Reachability)
+-- Phase 21: Monitoring concurrency 
 -- ============================================
 
--- Monitoring history with idempotency identifier
 ALTER TABLE monitoring_history 
   ADD COLUMN IF NOT EXISTS idempotency_identifier TEXT;
 
--- Monitoring incidents with idempotency identifier
 ALTER TABLE monitoring_incidents
   ADD COLUMN IF NOT EXISTS idempotency_identifier TEXT;
 
@@ -282,7 +288,7 @@ CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_mem
 -- Check constraints
 -- ================================
 
-ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_peek_failures_nonnegative 
+ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_peak_failures_nonnegative 
   CHECK (peak_failures >= 0);
 
 ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_duration_nonnegative 
