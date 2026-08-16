@@ -304,7 +304,7 @@ CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS auth_sessions_last_seen_idx ON auth_sessions(last_seen_at);
 
 -- OIDC auth flows
-CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows(expires_at);
+CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_at_idx ON oidc_auth_flows(expires_at);
 
 -- ================================
 -- Check constraints

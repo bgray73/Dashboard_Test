@@ -16,7 +16,7 @@ export const oidcAuthFlowsTable = pgTable(
   },
   (table) => [
     unique("oidc_auth_flows_state_hash_unique").on(table.stateHash),
-    index("oidc_auth_flows_expires_idx").on(table.expiresAt),
+    index("oidc_auth_flows_expires_at_idx").on(table.expiresAt),
     check("oidc_auth_flows_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
   ],
 );
