@@ -151,7 +151,7 @@ CREATE TABLE user_role_memberships (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  granted_by INTEGER REFERENCES users(id),
+  granted_by TEXT REFERENCES users(id),
   granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ,
   UNIQUE (user_id, role_id)
@@ -161,9 +161,11 @@ CREATE TABLE user_role_memberships (
 CREATE TABLE auth_sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  idle_expires_at TIMESTAMPTZ NOT NULL,
+  absolute_expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  revoked TEXT NOT NULL DEFAULT 'false',
   user_agent TEXT,
   ip_address TEXT
 );
@@ -171,11 +173,13 @@ CREATE TABLE auth_sessions (
 -- OIDC auth flows (PKCE state)
 CREATE TABLE oidc_auth_flows (
   id TEXT PRIMARY KEY,
+  state_hash TEXT NOT NULL,
   state TEXT NOT NULL,
   nonce TEXT NOT NULL,
   pkce_verifier TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL
+  issuer TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================================
@@ -249,7 +253,7 @@ CREATE TABLE IF NOT EXISTS drizzle_migrations (
 );
 
 -- ============================================
--- Indexes
+-- Index s
 -- ============================================
 
 -- Users
@@ -283,6 +287,14 @@ CREATE INDEX IF NOT EXISTS collectors_status_last_seen_idx ON collectors(status,
 
 -- User role memberships
 CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_memberships(expires_at);
+
+-- Auth sessions
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS auth_sessions_revoked_idx ON auth_sessions(revoked_at);
+
+-- OIDC auth flows
+CREATE INDEX IF NOT EXISTS oidc_auth_flows_issuer_idx ON oidc_auth_flows(issuer);
+CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows(expires_at);
 
 -- ================================
 -- Check constraints
