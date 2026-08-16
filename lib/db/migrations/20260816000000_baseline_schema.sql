@@ -12,7 +12,7 @@
 
 -- Users table (OIDC identity)
 CREATE TABLE users (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   identity_issuer TEXT NOT NULL,
   identity_subject TEXT NOT NULL,
   email TEXT,
@@ -159,7 +159,7 @@ CREATE TABLE user_role_memberships (
 
 -- Auth sessions
 CREATE TABLE auth_sessions (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash TEXT NOT NULL UNIQUE,
   idle_expires_at TIMESTAMPTZ NOT NULL,
@@ -167,19 +167,21 @@ CREATE TABLE auth_sessions (
   revoked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_agent TEXT,
-  ip_address TEXT
+  ip_address TEXT,
+  CONSTRAINT auth_sessions_idle_before_absolute_check CHECK (idle_expires_at <= absolute_expires_at)
 );
 
 -- OIDC auth flows (PKCE state)
 CREATE TABLE oidc_auth_flows (
-  id TEXT PRIMARY KEY,
-  state_hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  state_hash TEXT NOT NULL UNIQUE,
   state TEXT NOT NULL,
   nonce TEXT NOT NULL,
   pkce_verifier TEXT NOT NULL,
   issuer TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  CONSTRAINT oidc_auth_flows_expiry_check CHECK (expires_at > created_at)
 );
 
 -- ============================================
@@ -289,11 +291,11 @@ CREATE INDEX IF NOT EXISTS collectors_status_last_seen_idx ON collectors(status,
 CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_memberships(expires_at);
 
 -- Auth sessions
+CREATE UNIQUE INDEX IF NOT EXISTS auth_sessions_token_hash_unique ON auth_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions(idle_expires_at, absolute_expires_at);
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
-CREATE INDEX IF NOT EXISTS auth_sessions_revoked_idx ON auth_sessions(revoked_at);
 
 -- OIDC auth flows
-CREATE INDEX IF NOT EXISTS oidc_auth_flows_issuer_idx ON oidc_auth_flows(issuer);
 CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows(expires_at);
 
 -- ================================
