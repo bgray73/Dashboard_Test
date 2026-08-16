@@ -9,7 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "test": "DATABASE_URL=${DATABASE_URL:-postgresql://127.0.0.1:5432/labops_test} NODE_ENV=test OIDC_ISSUER_URL=https://issuer.example OIDC_CLIENT_ID=labops-test OIDC_CLIENT_SECRET=test-only-placeholder PUBLIC_BASE_URL=http://localhost:5000 tsx --test --test-concurrency=1 src/*.test.ts src/lib/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:push": "DATABASE_URL=${DATABASE_URL:-postgresql://127.0.0.1:5432/labops_test} npx drizzle-kit push --config=lib/db/drizzle.config.ts",
+    "db:push": "cd .. && pnpm --filter @workspace/db run push",
     "db:migrate": "tsx lib/db/src/migrate.ts"
   },
   "dependencies": {
