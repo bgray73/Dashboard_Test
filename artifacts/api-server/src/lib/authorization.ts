@@ -1,5 +1,5 @@
 /**
- * Phase 19: Authorization middleware
+ * Phase 19-20: Authorization middleware with role-based access control
  * 
  * Roles:
  * - PUBLIC: Liveness and OIDC callback/login mechanics only
@@ -17,7 +17,7 @@ export interface AuthSessionUser {
   id: number;
   displayName: string | null;
   email: string | null;
-  role: Role;
+  roles: string[];
 }
 
 export interface AuthSession {
@@ -26,6 +26,24 @@ export interface AuthSession {
 }
 
 export type RouteAccessRequirement = Role | "public" | "collector" | "authenticated";
+
+// Role hierarchy for access control - higher number = more permissions
+export const roleHierarchy: Record<Role, number> = {
+  viewer: 1,
+  operator: 2,
+  administrator: 3,
+};
+
+/**
+ * Get the effective role for a user from their role list
+ * Returns the highest role the user has
+ */
+export function getEffectiveRole(roles: string[]): Role | undefined {
+  if (roles.includes("administrator")) return "administrator";
+  if (roles.includes("operator")) return "operator";
+  if (roles.includes("viewer")) return "viewer";
+  return undefined;
+}
 
 /**
  * Route authorization configuration
@@ -176,23 +194,16 @@ export function createAuthorizationMiddleware(
       return;
     }
     
-    // Get the effective role for the user
-    // In Phase 20, this will load roles from the database
-    // For now, default to administrator (will be role-loaded in Phase 20)
-    const sessionUserRole: Role = "administrator";
+    // Get the effective role for the user from their loaded roles
+    const effectiveRole = getEffectiveRole(session.user.roles);
+    const sessionUserRole: Role = effectiveRole ?? "viewer";
     
     const requiredRole = routeRequiresRole(req.path, req.method);
     
     // Check role-based access
     if (requiredRole !== "public" && requiredRole !== "authenticated" && requiredRole !== "collector") {
-      const roleHierarchy: Record<Role, number> = {
-        viewer: 1,
-        operator: 2,
-        administrator: 3,
-      };
-
-      const userLevel = roleHierarchy[sessionUserRole] || 0;
       const requiredLevel = roleHierarchy[requiredRole as Role] || 1;
+      const userLevel = roleHierarchy[sessionUserRole] || 0;
       
       if (userLevel < requiredLevel) {
         logger.warn({
@@ -201,6 +212,7 @@ export function createAuthorizationMiddleware(
           userId: session.user.id,
           requiredRole,
           userRole: sessionUserRole,
+          userRoles: session.user.roles,
           method: req.method,
           path: req.path,
         });

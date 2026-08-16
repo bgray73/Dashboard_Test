@@ -60,7 +60,7 @@ function fakes(): AuthDependencies & {
         return token === "valid-token"
           ? {
               sessionId: 1,
-              user: { id: 7, displayName: "Approved", email: null },
+              user: { id: 7, displayName: "Approved", email: null, roles: ["administrator"] },
             }
           : undefined;
       },
@@ -420,6 +420,7 @@ describe("authentication routes and default guard", () => {
       id: 7,
       displayName: "Approved",
       email: null,
+      roles: ["administrator"],
     });
     const missing = await request(
       "/api/auth/me",

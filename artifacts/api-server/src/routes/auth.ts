@@ -14,7 +14,7 @@ import { logger } from "../lib/logger";
 
 export type SessionResult = {
   sessionId: number;
-  user: { id: number; displayName: string | null; email: string | null };
+  user: { id: number; displayName: string | null; email: string | null; roles: string[] };
 };
 export type AuthRouteDependencies = {
   oidc: {

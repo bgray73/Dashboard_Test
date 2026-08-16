@@ -13,10 +13,12 @@ import {
   createMainAuthGuard,
   type AuthRouteDependencies,
 } from "./routes/auth";
+import { createAuthorizationMiddleware } from "./lib/authorization";
 import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
 import type { RuntimeConfig } from "./lib/runtime-config";
+import { createRoleManagementRouter, roleDefinitions } from "./routes/roles";
 
 export type AuthDependencies = AuthRouteDependencies;
 
@@ -86,6 +88,17 @@ export function createApp(
   app.use("/api", healthRouter);
   app.use("/api/auth", createAuthRouter(config.auth, auth));
   app.use("/api", createMainAuthGuard(config.auth, auth));
+  
+  // Create authorization middleware
+  const authorization = createAuthorizationMiddleware(logger);
+  
+  // Register role management routes (admin only)
+  const roleRoutes = createRoleManagementRouter({ logger });
+  for (const { path, method, handler } of (roleRoutes as any).router.routes) {
+    // All role management routes require administrator access
+    app[method.toLowerCase() as "get"](path, authorization, handler);
+  }
+  
   app.use("/api", labopsRouter);
 
   const payloadTooLargeHandler: ErrorRequestHandler = (
