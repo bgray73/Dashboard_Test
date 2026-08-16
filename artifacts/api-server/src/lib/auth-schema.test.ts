@@ -27,7 +27,7 @@ describe("authentication database schema", () => {
     assert(!config.columns.includes("token"));
     assert.equal(config.foreignKeys, 1);
     assert(config.unique.includes("auth_sessions_token_hash_unique"));
-    assert.deepEqual(config.indexes.sort(), ["auth_sessions_expiry_idx", "auth_sessions_user_id_idx", "auth_sessions_last_seen_idx"]);
+    assert.deepEqual(config.indexes.sort(), ["auth_sessions_expiry_idx", "auth_sessions_last_seen_idx", "auth_sessions_user_id_idx"]);
     assert.deepEqual(config.checks, ["auth_sessions_idle_before_absolute_check"]);
   });
 
