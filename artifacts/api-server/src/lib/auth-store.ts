@@ -98,7 +98,7 @@ export class AuthStore {
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
-  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: number; displayName: string | null; email: string | null } } | undefined> {
+  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: number; displayName: string | null; email: string | null; roles: string[] } } | undefined> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
     const result = await this.pool.query<{ session_id: number; id: number; display_name: string | null; email: string | null }>(
       `SELECT s.id AS session_id,u.id,u.display_name,u.email FROM auth_sessions s JOIN users u ON u.id=s.user_id
@@ -112,7 +112,15 @@ export class AuthStore {
        WHERE id=$1 AND last_seen_at<=now()-interval '5 minutes'`,
       [row.session_id, this.ttl.idleTtlSeconds],
     );
-    return { sessionId: row.session_id, user: { id: row.id, displayName: row.display_name, email: row.email } };
+    // Phase 20: Load user roles from database
+    const rolesResult = await this.pool.query<{ role: string }>(
+      `SELECT r.role FROM user_role_memberships urm JOIN roles r ON r.id=urm.role_id WHERE urm.user_id=$1 AND (urm.expires_at IS NULL OR urm.expires_at>now()) ORDER BY r.role`,
+      [row.id],
+    );
+    const roles = rolesResult.rows.map((r) => r.role);
+    // Map database role names to authorization role names
+    const mappedRoles = roles.map((r) => r === "admin" ? "administrator" : r);
+    return { sessionId: row.session_id, user: { id: row.id, displayName: row.display_name, email: row.email, roles: mappedRoles } };
   }
 
   async revokeSession(token: string): Promise<void> {

@@ -1,5 +1,5 @@
 /**
- * Phase 19: Authorization middleware
+ * Phase 19-20: Authorization middleware with role-based access control
  * 
  * Roles:
  * - PUBLIC: Liveness and OIDC callback/login mechanics only
@@ -18,6 +18,7 @@ export interface AuthSessionUser {
   displayName: string | null;
   email: string | null;
   role: Role;
+  roles?: string[];
 }
 
 export interface AuthSession {
@@ -26,6 +27,45 @@ export interface AuthSession {
 }
 
 export type RouteAccessRequirement = Role | "public" | "collector" | "authenticated";
+
+/**
+ * Role hierarchy for comparing privileges
+ * viewer (1) < operator (2) < administrator (3)
+ */
+const roleHierarchy: Record<Role, number> = {
+  viewer: 1,
+  operator: 2,
+  administrator: 3,
+};
+
+/**
+ * Map database role names to authorization role names
+ * Database: admin, operator, viewer
+ * Authorization: administrator, operator, viewer
+ */
+function mapDbRoleToAuthRole(dbRole: string): Role {
+  if (dbRole === "admin") return "administrator";
+  return dbRole as Role;
+}
+
+/**
+ * Compute the effective role from a user's assigned roles
+ * Returns the highest privilege role, defaults to "viewer"
+ */
+export function getEffectiveRole(roles: string[]): Role {
+  if (!roles || roles.length === 0) return "viewer";
+  const mapped = roles.map(mapDbRoleToAuthRole);
+  let highest: Role = "viewer";
+  let highestLevel = roleHierarchy.viewer;
+  for (const role of mapped) {
+    const level = roleHierarchy[role];
+    if (level && level > highestLevel) {
+      highest = role;
+      highestLevel = level;
+    }
+  }
+  return highest;
+}
 
 /**
  * Route authorization configuration
@@ -39,6 +79,12 @@ const routeConfig: Record<string, { get?: RouteAccessRequirement; post?: RouteAc
   "/api/auth/me": { default: "public" },
   "/api/auth/logout": { default: "public" },
   "/api/collector/v1": { default: "collector" },
+  "/api/roles": { get: "viewer", post: "administrator" },
+  "/api/roles/users/:userId": { get: "viewer" },
+  "/api/roles/assign": { post: "administrator" },
+  "/api/roles/revoke": { delete: "administrator" },
+  "/api/roles/summary": { get: "administrator" },
+  "/api/collectors": { get: "administrator", post: "administrator" },
   
   // Dashboard
   "/api/dashboard/summary": { get: "viewer" },
@@ -119,6 +165,19 @@ function checkParameterizedPattern(path: string, method: string): RouteAccessReq
     return "operator";
   }
   
+  // GET /api/roles/users/:userId
+  if (method === "GET" && /^\/api\/roles\/users\/\d+$/.test(path)) {
+    return "viewer";
+  }
+  
+  // GET, PATCH, DELETE /api/collectors/:id
+  if (/^\/api\/collectors\/\d+$/.test(path)) {
+    const m = method.toUpperCase();
+    if (m === "GET") return "administrator";
+    if (m === "PATCH") return "administrator";
+    if (m === "DELETE") return "administrator";
+  }
+  
   return undefined;
 }
 
@@ -165,7 +224,7 @@ export function createAuthorizationMiddleware(
 ): RequestHandler {
   return async (req, res, next) => {
     // Get session from res.locals (set by createMainAuthGuard)
-    const session = (res as any).locals?.auth;
+    const session = (res as any).locals?.auth as AuthSession | undefined;
     
     if (!session) {
       const role = routeRequiresRole(req.path, req.method);
@@ -176,30 +235,25 @@ export function createAuthorizationMiddleware(
       return;
     }
     
-    // For now, default to administrator role
-    // In production, role should be fetched from user_roles table
-    const sessionUser = { id: session.user.id, role: "administrator" as Role };
+    // Phase 20: Use roles loaded from database instead of hardcoded role
+    const userRoles: string[] = (session as any).user?.roles ?? [];
+    const effectiveRole = getEffectiveRole(userRoles);
     
     const requiredRole = routeRequiresRole(req.path, req.method);
     
     // Check role-based access
     if (requiredRole !== "public" && requiredRole !== "authenticated" && requiredRole !== "collector") {
-      const roleHierarchy: Record<Role, number> = {
-        viewer: 1,
-        operator: 2,
-        administrator: 3,
-      };
-
-      const userLevel = roleHierarchy[sessionUser.role];
+      const userLevel = roleHierarchy[effectiveRole];
       const requiredLevel = roleHierarchy[requiredRole as Role];
       
       if (userLevel < requiredLevel) {
         logger.warn({
           event: "authorization_denied",
           outcome: "insufficient_role",
-          userId: sessionUser.id,
+          userId: session.user.id,
           requiredRole,
-          userRole: sessionUser.role,
+          userRole: effectiveRole,
+          roles: userRoles,
           method: req.method,
           path: req.path,
         });

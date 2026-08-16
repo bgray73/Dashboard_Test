@@ -85,6 +85,7 @@ describe("PostgreSQL authentication store", () => {
       id: user.id,
       displayName: "Approved",
       email: null,
+      roles: [],
     });
 
     const rows = await pool.query(
