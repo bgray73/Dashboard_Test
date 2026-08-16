@@ -4,6 +4,8 @@ import {
   aggregateRouteRole,
   createAuthorizationMiddleware,
   routeRequiresRole,
+  getEffectiveRole,
+  roleHierarchy,
   type Role,
 } from "./authorization";
 
@@ -73,6 +75,13 @@ describe("Phase 19 authorization", () => {
         "viewer",
       );
     });
+
+    it("returns administrator for collector management routes", () => {
+      assert.equal(routeRequiresRole("/api/collectors", "GET"), "administrator");
+      assert.equal(routeRequiresRole("/api/collectors", "POST"), "administrator");
+      assert.equal(routeRequiresRole("/api/collectors/1", "GET"), "administrator");
+      assert.equal(routeRequiresRole("/api/collectors/1", "DELETE"), "administrator");
+    });
   });
 
   describe("aggregateRouteRole", () => {
@@ -97,6 +106,30 @@ describe("Phase 19 authorization", () => {
           `${method} ${path} should require ${expected}`,
         );
       }
+    });
+  });
+
+  describe("getEffectiveRole", () => {
+    it("returns administrator when user has administrator role", () => {
+      assert.equal(getEffectiveRole(["viewer"]), "viewer");
+      assert.equal(getEffectiveRole(["operator"]), "operator");
+      assert.equal(getEffectiveRole(["administrator"]), "administrator");
+      assert.equal(getEffectiveRole(["viewer", "operator"]), "operator");
+      assert.equal(getEffectiveRole(["viewer", "administrator"]), "administrator");
+      assert.equal(getEffectiveRole(["operator", "administrator"]), "administrator");
+      assert.equal(getEffectiveRole(["viewer", "operator", "administrator"]), "administrator");
+    });
+
+    it("returns undefined when user has no roles", () => {
+      assert.equal(getEffectiveRole([]), undefined);
+    });
+  });
+
+  describe("roleHierarchy", () => {
+    it("has correct hierarchy levels", () => {
+      assert.equal(roleHierarchy.viewer, 1);
+      assert.equal(roleHierarchy.operator, 2);
+      assert.equal(roleHierarchy.administrator, 3);
     });
   });
 });

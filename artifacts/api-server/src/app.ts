@@ -18,7 +18,12 @@ import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
 import type { RuntimeConfig } from "./lib/runtime-config";
-import { createRoleManagementRouter, roleDefinitions } from "./routes/roles";
+import { createRoleManagementRouter } from "./routes/roles";
+import {
+  listCollectors,
+  getCollector,
+  revokeCollector,
+} from "./routes/collector-admin";
 
 export type AuthDependencies = AuthRouteDependencies;
 
@@ -98,6 +103,11 @@ export function createApp(
     // All role management routes require administrator access
     app[method.toLowerCase() as "get"](path, authorization, handler);
   }
+  
+  // Phase 23: Register collector management routes (admin only)
+  app.get("/api/collectors", authorization, listCollectors);
+  app.get("/api/collectors/:id", authorization, getCollector);
+  app.delete("/api/collectors/:id", authorization, revokeCollector);
   
   app.use("/api", labopsRouter);
 

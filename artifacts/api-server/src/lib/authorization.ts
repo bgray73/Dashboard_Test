@@ -100,6 +100,9 @@ const routeConfig: Record<string, { get?: RouteAccessRequirement; post?: RouteAc
   
   // Devices
   "/api/devices": { get: "viewer", post: "administrator" },
+  
+  // Collector management (Phase 23: Admin APIs)
+  "/api/collectors": { get: "administrator", post: "administrator" },
 };
 
 /**
@@ -135,6 +138,16 @@ function checkParameterizedPattern(path: string, method: string): RouteAccessReq
   // PATCH /api/incidents/:id/acknowledgment
   if (method === "PATCH" && /^\/api\/incidents\/\d+\/acknowledgment$/.test(path)) {
     return "operator";
+  }
+  
+  // GET /api/collectors/:id
+  if (method === "GET" && /^\/api\/collectors\/\d+($|\/)/.test(path)) {
+    return "administrator";
+  }
+  
+  // DELETE /api/collectors/:id
+  if (method === "DELETE" && /^\/api\/collectors\/\d+$/.test(path)) {
+    return "administrator";
   }
   
   return undefined;
