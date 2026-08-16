@@ -7,6 +7,12 @@
 -- without re-running it (set the hash in drizzle_migrations table)
 
 -- ============================================
+-- Phase 1: Required extensions
+-- ============================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ============================================
 -- Phase 17: Core monitoring tables
 -- ============================================
 
@@ -255,7 +261,7 @@ CREATE TABLE IF NOT EXISTS drizzle_migrations (
 );
 
 -- ============================================
--- Index s
+-- Indexes
 -- ============================================
 
 -- Users
