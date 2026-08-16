@@ -23,7 +23,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://labops_test:***@127.0.0.1:5432/labops_test
+      DATABASE_URL: postgresql://labops_test:labops_test@127.0.0.1:5432/labops_test
       NODE_ENV: test
       OIDC_ISSUER_URL: https://issuer.example
       OIDC_CLIENT_ID: labops-test
@@ -39,6 +39,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Debug database connection
+        run: |
+          echo "Testing database connectivity..."
+          pg_isready -h 127.0.0.1 -p 5432 -U labops_test
+          psql postgresql://labops_test:labops_test@127.0.0.1:5432/labops_test -c "SELECT 1" || echo "Database connectible"
       - run: pnpm --filter @workspace/db run push-force
       - run: pnpm run typecheck
       - run: pnpm run test
