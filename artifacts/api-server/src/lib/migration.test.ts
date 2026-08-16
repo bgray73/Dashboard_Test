@@ -68,7 +68,7 @@ describe("Phase 23: Migration infrastructure", () => {
         text: `
           SELECT table_name 
           FROM information_schema.tables 
-          WHERE table_schema = 'public' 
+          WHERE table_schema = 'public'
           AND table_name = ANY($1)
           ORDER BY table_name
         `,
