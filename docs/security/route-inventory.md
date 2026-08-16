@@ -2,6 +2,8 @@
 
 All routes are mounted beneath `/api`. Phase 18 protects every main application route with a revocable browser session by default. Only the public mechanics listed below bypass that guard. Collector routes retain their independent bearer-token boundary.
 
+Phase 19-20 added route-level roles: every route requires an authenticated session, and the authorization middleware enforces a minimum role (Viewer, Operator, or Administrator) based on database-loaded user roles.
+
 ## Public liveness
 
 | Method | Path       | Purpose                   | Data/mutation risk                        |
@@ -19,13 +21,13 @@ All routes are mounted beneath `/api`. Phase 18 protects every main application 
 
 ## Dashboard, monitoring, and incidents
 
-All routes in this and the following main-application sections require an authenticated browser session. Phase 19 will add route-level roles.
+All routes in this and the following main-application sections require an authenticated browser session. Phase 19-20 authorization middleware enforces role-based access control per route.
 
-| Method | Path                            | Risk                                             |
-| ------ | ------------------------------- | ------------------------------------------------ |
-| GET    | `/dashboard/summary`            | Reads aggregate operational state                |
-| GET    | `/dashboard/recent-status`      | Reads device identity and status                 |
-| POST   | `/dashboard/check-monitored`    | Initiates network checks and state changes       |
+| Method | Path                            | Role         | Risk                                             |
+| ------ | ------------------------------- | ------------ | ------------------------------------------------ |
+| GET    | `/dashboard/summary`            | Viewer       | Reads aggregate operational state                |
+| GET    | `/dashboard/recent-status`      | Viewer       | Reads device identity and status                 |
+| POST   | `/dashboard/check-monitored`    | Operator     | Initiates network checks and state changes       |
 | GET    | `/monitoring`                   | Reads scheduler, devices, history, and incidents |
 | GET    | `/maintenance-history`          | Reads maintenance audit data                     |
 | GET    | `/incidents`                    | Reads incident records                           |
@@ -34,48 +36,48 @@ All routes in this and the following main-application sections require an authen
 
 ## Devices
 
-| Method | Path                              | Risk                                                  |
-| ------ | --------------------------------- | ----------------------------------------------------- |
-| GET    | `/devices`                        | Reads inventory and management addresses              |
-| POST   | `/devices`                        | Creates inventory records                             |
-| GET    | `/devices/:id`                    | Reads a device record                                 |
-| PATCH  | `/devices/:id`                    | Changes monitoring, maintenance, and identity data    |
-| DELETE | `/devices/:id`                    | Destructive cascading deletion                        |
-| POST   | `/devices/:id/ping`               | Initiates network access and mutates monitoring state |
-| GET    | `/devices/:id/monitoring-history` | Reads retained health history                         |
+| Method | Path                               | Role         | Risk                                                  |
+| ------ | ---------------------------------- | ------------ | ----------------------------------------------------- |
+| GET    | `/devices`                        | Viewer       | Reads inventory and management addresses              |
+| POST   | `/devices`                        | Administrator | Creates inventory records                             |
+| GET    | `/devices/:id`                    | Viewer       | Reads a device record                                 |
+| PATCH  | `/devices/:id`                    | Administrator | Changes monitoring, maintenance, and identity data    |
+| DELETE | `/devices/:id`                    | Administrator | Destructive cascading deletion                        |
+| POST   | `/devices/:id/ping`               | Operator     | Initiates network access and mutates monitoring state |
+| GET    | `/devices/:id/monitoring-history` | Viewer       | Reads retained health history                         |
 
 ## Reports and exports
 
-| Method | Path                              | Risk                                       |
-| ------ | --------------------------------- | ------------------------------------------ |
-| GET    | `/reports/summary`                | Reads aggregate report counts              |
-| GET    | `/reports/devices.csv`            | Exports inventory and management addresses |
-| GET    | `/reports/incidents.csv`          | Exports incident/operator data             |
-| GET    | `/reports/monitoring-history.csv` | Exports retained monitoring history        |
-| GET    | `/reports/availability`           | Reads availability data                    |
-| GET    | `/reports/availability.csv`       | Exports availability data                  |
+| Method | Path                              | Role         | Risk                                       |
+| ------ | --------------------------------- | ------------ | ------------------------------------------ |
+| GET    | `/reports/summary`                | Viewer       | Reads aggregate report counts              |
+| GET    | `/reports/devices.csv`            | Viewer       | Exports inventory and management addresses |
+| GET    | `/reports/incidents.csv`          | Viewer       | Exports incident/operator data             |
+| GET    | `/reports/monitoring-history.csv` | Viewer       | Exports retained monitoring history        |
+| GET    | `/reports/availability`           | Viewer       | Reads availability data                    |
+| GET    | `/reports/availability.csv`       | Viewer       | Exports availability data                  |
 
 ## Saved configurations and settings
 
-| Method | Path                                  | Risk                                                      |
-| ------ | ------------------------------------- | --------------------------------------------------------- |
-| GET    | `/saved-configurations`               | Reads archived generated configurations                   |
-| POST   | `/saved-configurations`               | Persists generated configuration; secret-sensitive        |
-| DELETE | `/saved-configurations/:id`           | Destructive deletion                                      |
-| GET    | `/settings`                           | Reads application and webhook settings                    |
-| PATCH  | `/settings`                           | Changes retention, ping, appearance, and webhook behavior |
-| GET    | `/settings/retention-status`          | Reads cleanup eligibility                                 |
-| POST   | `/settings/retention-cleanup`         | Destructively deletes expired monitoring rows             |
-| GET    | `/notifications/deliveries`           | Reads webhook delivery metadata                           |
-| POST   | `/notifications/test`                 | Causes outbound network access                            |
-| POST   | `/notifications/deliveries/:id/retry` | Repeats outbound network access                           |
+| Method | Path                                  | Role         | Risk                                                      |
+| ------ | ------------------------------------- | ------------ | --------------------------------------------------------- |
+| GET    | `/saved-configurations`               | Viewer       | Reads archived generated configurations                   |
+| POST   | `/saved-configurations`               | Administrator | Persists generated configuration; secret-sensitive        |
+| DELETE | `/saved-configurations/:id`           | Administrator | Destructive deletion                                      |
+| GET    | `/settings`                           | Viewer       | Reads application and webhook settings                    |
+| PATCH  | `/settings`                           | Administrator | Changes retention, ping, appearance, and webhook behavior |
+| GET    | `/settings/retention-status`          | Viewer       | Reads cleanup eligibility                                 |
+| POST   | `/settings/retention-cleanup`         | Operator     | Destructively deletes expired monitoring rows             |
+| GET    | `/notifications/deliveries`           | Viewer       | Reads webhook delivery metadata                           |
+| POST   | `/notifications/test`                 | Operator     | Causes outbound network access                            |
+| POST   | `/notifications/deliveries/:id/retry` | Operator     | Repeats outbound network access                           |
 
 ## Network tools
 
-| Method | Path                               | Risk                                           |
-| ------ | ---------------------------------- | ---------------------------------------------- |
-| POST   | `/tools/ping`                      | Initiates ICMP from the API host               |
-| GET    | `/tools/reachability-capabilities` | Discloses provider/runtime capability metadata |
+| Method | Path                               | Role         | Risk                                           |
+| ------ | ---------------------------------- | ------------ | ---------------------------------------------- |
+| POST   | `/tools/ping`                      | Operator     | Initiates ICMP from the API host               |
+| GET    | `/tools/reachability-capabilities` | Viewer       | Discloses provider/runtime capability metadata |
 
 ## Collector API
 
@@ -86,6 +88,24 @@ Mounted beneath `/api/collector/v1`; bearer-token authenticated and restricted t
 | POST   | `/heartbeat`          | Authenticated collector liveness update                  |
 | POST   | `/jobs/claim`         | Authenticated, collector-scoped lease claim              |
 | POST   | `/jobs/:jobId/result` | Authenticated leased result submission and replay checks |
+
+## Role management
+| Method | Path                    | Role         | Risk                                             |
+| ------ | ----------------------- | ------------ | ------------------------------------------------ |
+| GET    | `/roles`                | Viewer       | Reads role definitions and assignments           |
+| GET    | `/roles/users/:userId`  | Viewer       | Reads a user's role assignments                  |
+| POST   | `/roles/assign`         | Administrator | Grants a role to a user                          |
+| DELETE | `/roles/revoke`         | Administrator | Removes role membership from a user              |
+| GET    | `/roles/summary`        | Administrator | Reads role assignment statistics                 |
+
+## Collector lifecycle
+| Method | Path              | Role         | Risk                                             |
+| ------ | ----------------- | ------------ | ------------------------------------------------ |
+| GET    | `/collectors`     | Administrator | Lists all collectors with status and statistics |
+| GET    | `/collectors/:id` | Administrator | Reads a collector's detail                       |
+| POST   | `/collectors`     | Administrator | Creates a new collector                          |
+| PATCH  | `/collectors/:id` | Administrator | Updates collector settings                       |
+| DELETE | `/collectors/:id` | Administrator | Revokes a collector and rotates its token       |
 
 ## Required follow-up permission model
 
