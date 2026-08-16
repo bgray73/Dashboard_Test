@@ -82,8 +82,8 @@ type SavedConfigurationInput = {
   associatedDeviceId?: number | null;
   generatedConfiguration: string;
   notes?: string;
-  authPassword?: string;
-  privacyPassword?: string;
+  // Phase 24: Password fields removed - secrets are server-managed only
+  // Use /api/settings/snmp-secrets endpoint for credential management
 };
 
 let setupPromise: Promise<void> | undefined;
@@ -165,20 +165,39 @@ function validateDeviceInput(body: unknown): { data?: DeviceInput; error?: strin
   };
 }
 
-function sanitizeConfiguration(input: SavedConfigurationInput): string {
-  let configuration = input.generatedConfiguration;
-  if (input.authPassword) configuration = configuration.split(input.authPassword).join("<AUTH_PASSWORD>");
-  if (input.privacyPassword) configuration = configuration.split(input.privacyPassword).join("<PRIV_PASSWORD>");
-  configuration = configuration
+function sanitizeConfiguration(configuration: string): string {
+  // Phase 24: Server-enforced secret redaction
+  // All SNMP secrets are redacted to placeholders before persistence
+  let sanitized = configuration;
+  
+  // Redact SNMPv3 auth passwords
+  sanitized = sanitized.replace(
+    /auth\s+(md5|sha1|sha256|sha512|priv)\s+\S+/gi,
+    '$1=<AUTH_PASSWORD>'
+  );
+  
+  // Redact SNMPv3 privacy passwords
+  sanitized = sanitized.replace(
+    /priv\s+(aes|des|3des)(\s+\d+)?\s+\S+/gi,
+    '$1$2=<PRIV_PASSWORD>'
+  );
+  
+  // Redact generic password patterns
+  sanitized = sanitized.replace(
+    /(password|passphrase|auth_key|priv_key|secret)\s*[=:]\s*\S+/gi,
+    '$1=<REDACTED>'
+  );
+  sanitized = sanitized.replace(
+    /(password|passphrase|auth_key|priv_key|secret)\s+\S+/gi,
+    '$1=<REDACTED>'
+  );
+  
+  // Normalize existing placeholders
+  sanitized = sanitized
     .replace(/(<AUTH_PASSWORD>|<AUTH[_ -]?PASSWORD>|AUTH_PASSWORD|\[AUTH_PASSWORD\])/gi, "<AUTH_PASSWORD>")
     .replace(/(<PRIV_PASSWORD>|<PRIV[_ -]?PASSWORD>|PRIV_PASSWORD|\[PRIV_PASSWORD\])/gi, "<PRIV_PASSWORD>");
-
-  if (input.configurationType === "SNMPv3") {
-    configuration = configuration
-      .replace(/(authentication(?:-password| password)?\s+)(?!<AUTH_PASSWORD>|\[AUTH_PASSWORD\])\S+/gi, "$1<AUTH_PASSWORD>")
-      .replace(/(privacy(?:-password| password)?\s+)(?!<PRIV_PASSWORD>|\[PRIV_PASSWORD\])\S+/gi, "$1<PRIV_PASSWORD>");
-  }
-  return configuration;
+  
+  return sanitized;
 }
 
 async function ensureSetup(): Promise<void> {
@@ -609,15 +628,7 @@ router.post("/saved-configurations", async (req, res): Promise<void> => {
   const vendor = input.vendor as string;
   const configurationType = input.configurationType as string;
   const generatedInput = input.generatedConfiguration;
-  const generatedConfiguration = sanitizeConfiguration({
-    name,
-    vendor,
-    configurationType,
-    generatedConfiguration: generatedInput,
-    notes: input.notes,
-    authPassword: input.authPassword,
-    privacyPassword: input.privacyPassword,
-  });
+  const generatedConfiguration = sanitizeConfiguration(generatedInput);
   const [saved] = await db.insert(savedConfigurationsTable).values({
     name,
     vendor,

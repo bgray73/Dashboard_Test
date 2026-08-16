@@ -1,8 +1,12 @@
 /**
- * Phase 20: Server-side Configuration Generation
- *
- * This module provides server-enforced configuration generation and secret handling.
+ * Phase 20 + Phase 24: Server-side Configuration Generation
+ * 
+ * Phase 20: Server-side Configuration Generation and secret handling
+ * Phase 24: Server-enforced SNMP secret non-persistence
+ * 
+ * This module provides server-enforced configuration generation.
  * All secret-bearing fields are processed server-side to prevent cleartext persistence.
+ * Passwords are NEVER accepted from API clients - they are managed via server-side secret store.
  */
 
 /**
@@ -20,20 +24,20 @@ export function containsSecrets(config: string): { hasSecrets: boolean; patterns
   const privPasswordRegex = /priv\s+(aes|des|3des)(\s+\d+)?\s+\S+/gi;
   if (privPasswordRegex.test(config)) patterns.push("priv_password");
 
-  // Generic password patterns
+  // Generic password patterns (not including already-redacted placeholders)
   const secretPatterns = [
-    /password\s*[=:]\s*\S+/gi,
-    /password\s+\S+/gi,
-    /passphrase\s*[=:]\s*\S+/gi,
-    /secret\s+\S+/gi,
-    /auth_key\s+\S+/gi,
-    /priv_key\s+\S+/gi,
+    /password\s*[=:]\s*(?!<[^>]+>)[^\s<]+/gi,
+    /password\s+(?!<[^>]+>)[^\s<]+/gi,
+    /passphrase\s*[=:]\s*(?!<[^>]+>)[^\s<]+/gi,
+    /secret\s+(?!<[^>]+>)[^\s<]+/gi,
+    /auth_key\s+(?!<[^>]+>)[^\s<]+/gi,
+    /priv_key\s+(?!<[^>]+>)[^\s<]+/gi,
   ];
   
   for (const pattern of secretPatterns) {
     if (pattern.test(config)) patterns.push("credential");
   }
-
+  
   return {
     hasSecrets: patterns.length > 0,
     patterns: Array.from(new Set(patterns)),
@@ -43,6 +47,7 @@ export function containsSecrets(config: string): { hasSecrets: boolean; patterns
 /**
  * Redact all secret fields from a configuration string
  * Handles Cisco, Arista, Juniper, and other vendor formats
+ * Phase 24: Always redacts - never trusts input to be already redacted
  */
 export function redactSecrets(config: string): string {
   let redacted = config;
@@ -59,15 +64,25 @@ export function redactSecrets(config: string): string {
     '$1$2=<PRIV_PASSWORD>'
   );
 
-  // Redact generic password patterns
+  // Redact generic password/secret patterns
+  // But preserve placeholders like <AUTH_PASSWORD>, <PRIV_PASSWORD>, <REDACTED>
   redacted = redacted.replace(
     /(password|passphrase|auth_key|priv_key|secret)\s*[=:]\s*\S+/gi,
     '$1=<REDACTED>'
   );
-  
   redacted = redacted.replace(
     /(password|passphrase|auth_key|priv_key|secret)\s+\S+/gi,
     '$1=<REDACTED>'
+  );
+  
+  // Normalize placeholder variations
+  redacted = redacted.replace(
+    /(<AUTH_PASSWORD>|<AUTH[_ -]?PASSWORD>|AUTH_PASSWORD|\[AUTH_PASSWORD\])/gi, 
+    "<AUTH_PASSWORD>"
+  );
+  redacted = redacted.replace(
+    /(<PRIV_PASSWORD>|<PRIV[_ -]?PASSWORD>|PRIV_PASSWORD|\[PRIV_PASSWORD\])/gi, 
+    "<PRIV_PASSWORD>"
   );
 
   return redacted;
@@ -75,6 +90,7 @@ export function redactSecrets(config: string): string {
 
 /**
  * Generate a safe configuration from input, redacting any secrets
+ * Phase 24: Server-enforced - always redacts, never trusts client input
  */
 export function generateSafeConfiguration(
   input: { generatedConfiguration: string }
@@ -84,31 +100,30 @@ export function generateSafeConfiguration(
 
 /**
  * Validate that a configuration input is safe (no embedded secrets)
+ * Phase 24: Strict server enforcement - rejects any cleartext secrets
  */
 export function validateConfigurationInput(input: {
   generatedConfiguration?: string;
-  authPassword?: string;
-  privacyPassword?: string;
 }): { valid: boolean; error?: string } {
-  // Reject direct password input from API clients
-  if (input.authPassword && input.authPassword.length > 0) {
-    return { valid: false, error: "auth password must not be provided through the API" };
-  }
-  
-  if (input.privacyPassword && input.privacyPassword.length > 0) {
-    return { valid: false, error: "privacy password must not be provided through the API" };
-  }
-  
   // Check generated configuration for embedded secrets
   if (input.generatedConfiguration && input.generatedConfiguration.length > 0) {
-    const { hasSecrets } = containsSecrets(input.generatedConfiguration);
+    const { hasSecrets, patterns } = containsSecrets(input.generatedConfiguration);
     if (hasSecrets) {
       return {
         valid: false,
-        error: "Configuration contains embedded secrets that will be redacted server-side"
+        error: `Configuration contains embedded secrets (${patterns.join(', ')}). These will be redacted server-side.`
       };
     }
   }
   
   return { valid: true };
+}
+
+/**
+ * Phase 24: Check if input contains forbidden password fields
+ * Returns true if password fields are present (should be rejected)
+ */
+export function hasForbiddenPasswords(input: Record<string, unknown>): boolean {
+  const forbiddenKeys = ['authPassword', 'privacyPassword', 'auth_password', 'privacy_password'];
+  return forbiddenKeys.some(key => key in input);
 }
