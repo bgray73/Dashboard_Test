@@ -72,7 +72,8 @@ describe("Phase 23: Migration infrastructure", () => {
           AND table_name = ANY($1)
           ORDER BY table_name
         `,
-        [tables],
+        values: [tables],
+        
       });
 
       const existingTables = result.rows.map((r) => r.table_name);
@@ -98,7 +99,8 @@ describe("Phase 23: Migration infrastructure", () => {
             SELECT typname FROM pg_type 
             WHERE typname = $1
           `,
-          [enumName],
+          values: [enumName],
+          
         });
 
         assert.equal(result.rowCount, 1, `Enum '${enumName}' not found`);
