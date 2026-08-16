@@ -12,6 +12,7 @@ export const authSessionsTable = pgTable(
     idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
     absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     userAgent: text("user_agent"),
     ipAddress: text("ip_address"),

@@ -171,6 +171,7 @@ CREATE TABLE auth_sessions (
   idle_expires_at TIMESTAMPTZ NOT NULL,
   absolute_expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ,
+  last_seen_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_agent TEXT,
   ip_address TEXT,
@@ -300,6 +301,7 @@ CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_mem
 CREATE UNIQUE INDEX IF NOT EXISTS auth_sessions_token_hash_unique ON auth_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions(idle_expires_at, absolute_expires_at);
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS auth_sessions_last_seen_idx ON auth_sessions(last_seen_at);
 
 -- OIDC auth flows
 CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows(expires_at);
