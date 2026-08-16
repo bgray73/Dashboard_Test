@@ -21,6 +21,7 @@ export const authSessionsTable = pgTable(
     unique("auth_sessions_token_hash_unique").on(table.tokenHash),
     index("auth_sessions_expiry_idx").on(table.idleExpiresAt, table.absoluteExpiresAt),
     index("auth_sessions_user_id_idx").on(table.userId),
+    index("auth_sessions_last_seen_idx").on(table.lastSeenAt),
     check("auth_sessions_idle_before_absolute_check", sql`${table.idleExpiresAt} <= ${table.absoluteExpiresAt}`),
   ],
 );
