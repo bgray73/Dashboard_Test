@@ -13,6 +13,10 @@ import {
   createMainAuthGuard,
   type AuthRouteDependencies,
 } from "./routes/auth";
+import { createAuthorizationMiddleware } from "./lib/authorization";
+import { createCsrfProtection, setCsrfToken } from "./lib/csrf";
+import { createAuthRateLimiter, createApiRateLimiter, createCollectorRateLimiter } from "./lib/rate-limit";
+import { createAuditLogging } from "./lib/audit-events";
 import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
@@ -62,6 +66,8 @@ export function createApp(
     }),
   );
   app.use(helmet());
+  
+  // CORS middleware - applied first so all routes benefit
   app.use(
     cors({
       origin(origin, callback) {
@@ -72,21 +78,46 @@ export function createApp(
       },
     }),
   );
+  
+  // Collector API has its own body limit and auth - must come before general body parser
   app.use(
     "/api/collector/v1",
     express.json({ limit: "16kb" }),
+    createCollectorRateLimiter(),
     collectorRouter,
   );
+  
+  // Body parsing for general API routes
   app.use(express.json({ limit: config.jsonBodyLimit }));
   app.use(
     express.urlencoded({ extended: true, limit: config.urlencodedBodyLimit }),
   );
   app.use(cookieParser());
-
+  
+  // Health routes (public)
   app.use("/api", healthRouter);
+  
+  // Auth routes (public)
   app.use("/api/auth", createAuthRouter(config.auth, auth));
-  app.use("/api", createMainAuthGuard(config.auth, auth));
-  app.use("/api", labopsRouter);
+  
+  // Security middleware - Phase 18
+  // These should only apply to browser-session protected routes (/api/* excluding above)
+  const csrfSecret = config.csrfSecret || "default-csrf-secret-change-in-production";
+  app.use("/api/", createCsrfProtection(csrfSecret));
+  app.use("/api/", setCsrfToken(csrfSecret));
+  
+  // Rate limiting - Phase 18
+  app.use("/api/auth/", createAuthRateLimiter()); // Stricter limits for auth
+  app.use("/api/", createApiRateLimiter()); // General API limits
+  
+  // Audit logging - Phase 18
+  app.use(createAuditLogging());
+  
+  // Main auth guard for browser sessions (applies to remaining /api routes)
+  app.use("/api/", createMainAuthGuard(config.auth, auth));
+  
+  // Labops routes (browser session protected)
+  app.use("/api/", labopsRouter);
 
   const payloadTooLargeHandler: ErrorRequestHandler = (
     error,

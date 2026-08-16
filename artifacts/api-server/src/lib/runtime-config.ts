@@ -110,6 +110,7 @@ export type RuntimeConfig = {
   urlencodedBodyLimit: string;
   reachabilityProvider: "local-icmp" | "collector";
   collectorId?: number;
+  csrfSecret?: string;
   auth: AuthRuntimeConfig;
 };
 
