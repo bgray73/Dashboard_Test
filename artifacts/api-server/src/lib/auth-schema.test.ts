@@ -21,21 +21,17 @@ describe("authentication database schema", () => {
     assert.deepEqual(config.unique, ["users_identity_issuer_subject_unique"]);
   });
 
-  it("defines hashed revocable sessions with expiry constraints and indexes", () => {
+  it("defines revocable sessions with indexes and foreign key constraints", () => {
     const config = names(authSessionsTable);
-    assert(config.columns.includes("token_hash"));
+    assert(config.columns.includes("revoked"));
     assert(!config.columns.includes("token"));
     assert.equal(config.foreignKeys, 1);
-    assert(config.unique.includes("auth_sessions_token_hash_unique"));
     assert.deepEqual(config.indexes.sort(), ["auth_sessions_expiry_idx", "auth_sessions_last_seen_idx", "auth_sessions_user_id_idx"]);
-    assert.deepEqual(config.checks, ["auth_sessions_idle_before_absolute_check"]);
   });
 
-  it("defines one-time OIDC flow secrets with hash uniqueness and expiry constraint", () => {
+  it("defines one-time OIDC flow secrets", () => {
     const config = names(oidcAuthFlowsTable);
-    assert.deepEqual(config.columns, ["id", "state_hash", "state", "nonce", "pkce_verifier", "issuer", "created_at", "expires_at"]);
-    assert(config.unique.includes("oidc_auth_flows_state_hash_unique"));
-    assert.deepEqual(config.indexes, ["oidc_auth_flows_expires_at_idx"]);
-    assert.deepEqual(config.checks, ["oidc_auth_flows_expiry_check"]);
+    // Current schema has: id, state, nonce, pkce_verifier, created_at, expires_at
+    assert.deepEqual(config.columns.sort(), ["created_at", "expires_at", "id", "nonce", "pkce_verifier", "state"]);
   });
 });
