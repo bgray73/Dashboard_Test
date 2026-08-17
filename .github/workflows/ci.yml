@@ -31,21 +31,15 @@ jobs:
       PUBLIC_BASE_URL: http://localhost:5000
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 11.16.0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-
-      - name: Setup database
-        run: cd lib/db && npx tsx node_modules/.bin/drizzle-kit push --config drizzle.config.ts
-
+      - run: pnpm --filter @workspace/db run migrate
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run build
