@@ -89,8 +89,8 @@ export class AuthStore {
       await client.query("BEGIN");
       if (priorToken) await client.query("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at, now()) WHERE token_hash=$1", [hashOpaqueToken(priorToken)]);
       const result = await client.query<{ absolute_expires_at: Date }>(
-        `INSERT INTO auth_sessions (user_id, token_hash, idle_expires_at, absolute_expires_at)
-         VALUES ($1,$2,now()+($3*interval '1 second'),now()+($4*interval '1 second')) RETURNING absolute_expires_at`,
+        `INSERT INTO auth_sessions (user_id, token_hash, expires_at, idle_expires_at, absolute_expires_at)
+         VALUES ($1,$2,now()+($4*interval '1 second'),now()+($3*interval '1 second'),now()+($4*interval '1 second')) RETURNING absolute_expires_at`,
         [userId, tokenHash, this.ttl.idleTtlSeconds, this.ttl.absoluteTtlSeconds],
       );
       await client.query("COMMIT");

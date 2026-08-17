@@ -1,4 +1,9 @@
 -- LabOps Database Migration
+CREATE TYPE "user_roles" AS ENUM ('admin', 'operator', 'viewer');
+CREATE TYPE "reachability_job_status" AS ENUM ('queued', 'leased', 'completed', 'expired');
+CREATE TYPE "collector_status" AS ENUM ('active', 'revoked');
+CREATE TYPE "notification_type" AS ENUM ('slack', 'email', 'webhook');
+
 CREATE TABLE "devices" (
     "id" serial PRIMARY KEY,
     "hostname" text NOT NULL,
@@ -77,14 +82,14 @@ CREATE TABLE "auth_sessions" (
     CONSTRAINT auth_sessions_idle_before_absolute_check CHECK ("idle_expires_at" <= "absolute_expires_at")
 );
 
-CREATE UNIQUE INDEX auth_sessions_token_hash_unique ON "auth_sessions" ("token_hash");
+ALTER TABLE "auth_sessions" ADD CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE ("token_hash");
 CREATE INDEX auth_sessions_user_id_idx ON "auth_sessions" ("user_id");
 CREATE INDEX auth_sessions_expiry_idx ON "auth_sessions" ("idle_expires_at", "absolute_expires_at");
 CREATE INDEX auth_sessions_last_seen_idx ON "auth_sessions" ("last_seen_at");
 
 CREATE TABLE "roles" (
     "id" serial PRIMARY KEY,
-    "role" text NOT NULL,
+    "role" user_roles NOT NULL,
     "description" text,
     "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -119,7 +124,7 @@ CREATE TABLE "oidc_auth_flows" (
     CONSTRAINT oidc_auth_flows_expiry_check CHECK ("expires_at" > "created_at")
 );
 
-CREATE UNIQUE INDEX oidc_auth_flows_state_hash_unique ON "oidc_auth_flows" ("state_hash");
+ALTER TABLE "oidc_auth_flows" ADD CONSTRAINT "oidc_auth_flows_state_hash_unique" UNIQUE ("state_hash");
 CREATE INDEX oidc_auth_flows_expires_at_idx ON "oidc_auth_flows" ("expires_at");
 
 CREATE TABLE "collectors" (
@@ -127,7 +132,7 @@ CREATE TABLE "collectors" (
     "name" text NOT NULL,
     "hostname" text,
     "token_hash" text NOT NULL,
-    "status" text DEFAULT 'active' NOT NULL,
+    "status" collector_status DEFAULT 'active' NOT NULL,
     "capabilities" jsonb DEFAULT '["icmp"]'::jsonb NOT NULL,
     "last_seen_at" timestamp with time zone,
     "revoked_at" timestamp with time zone,
@@ -144,7 +149,7 @@ CREATE TABLE "reachability_jobs" (
     "collector_id" integer,
     "device_id" integer NOT NULL,
     "target" text NOT NULL,
-    "status" text DEFAULT 'queued' NOT NULL,
+    "status" reachability_job_status DEFAULT 'queued' NOT NULL,
     "timeout_ms" integer DEFAULT 5000 NOT NULL,
     "attempt_count" integer DEFAULT 0 NOT NULL,
     "lease_id" text,

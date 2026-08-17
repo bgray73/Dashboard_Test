@@ -183,15 +183,15 @@ describe("PostgreSQL authentication store", () => {
 
     await pool.query(
       `INSERT INTO auth_sessions
-         (user_id, token_hash, idle_expires_at, absolute_expires_at)
-       VALUES ($1, 'same-token-hash', now() + interval '1 hour', now() + interval '2 hours')`,
+         (user_id, token_hash, expires_at, idle_expires_at, absolute_expires_at)
+       VALUES ($1, 'same-token-hash', now() + interval '2 hours', now() + interval '1 hour', now() + interval '2 hours')`,
       [user.rows[0].id],
     );
     await assert.rejects(
       pool.query(
         `INSERT INTO auth_sessions
-           (user_id, token_hash, idle_expires_at, absolute_expires_at)
-         VALUES ($1, 'same-token-hash', now() + interval '1 hour', now() + interval '2 hours')`,
+           (user_id, token_hash, expires_at, idle_expires_at, absolute_expires_at)
+         VALUES ($1, 'same-token-hash', now() + interval '2 hours', now() + interval '1 hour', now() + interval '2 hours')`,
         [user.rows[0].id],
       ),
       (error: unknown) =>
@@ -222,8 +222,8 @@ describe("PostgreSQL authentication store", () => {
     await assert.rejects(
       pool.query(
         `INSERT INTO auth_sessions
-           (user_id, token_hash, idle_expires_at, absolute_expires_at)
-         VALUES ($1, 'invalid-expiry', now() + interval '2 hours', now() + interval '1 hour')`,
+           (user_id, token_hash, expires_at, idle_expires_at, absolute_expires_at)
+         VALUES ($1, 'invalid-expiry', now() + interval '2 hours', now() + interval '2 hours', now() + interval '1 hour')`,
         [user.rows[0].id],
       ),
       (error: unknown) =>
@@ -251,9 +251,9 @@ describe("PostgreSQL authentication store", () => {
     );
     await pool.query(
       `INSERT INTO auth_sessions
-         (user_id, token_hash, idle_expires_at, absolute_expires_at)
-       VALUES ($1, 'cascade-token-1', now() + interval '1 hour', now() + interval '2 hours'),
-              ($1, 'cascade-token-2', now() + interval '1 hour', now() + interval '2 hours')`,
+         (user_id, token_hash, expires_at, idle_expires_at, absolute_expires_at)
+       VALUES ($1, 'cascade-token-1', now() + interval '2 hours', now() + interval '1 hour', now() + interval '2 hours'),
+              ($1, 'cascade-token-2', now() + interval '2 hours', now() + interval '1 hour', now() + interval '2 hours')`,
       [user.rows[0].id],
     );
     await pool.query("DELETE FROM users WHERE id=$1", [user.rows[0].id]);
@@ -317,6 +317,7 @@ describe("PostgreSQL authentication store", () => {
       [
         [
           "auth_sessions_expiry_idx",
+          "auth_sessions_last_seen_idx",
           "auth_sessions_token_hash_unique",
           "auth_sessions_user_id_idx",
           "oidc_auth_flows_expires_at_idx",
@@ -329,6 +330,7 @@ describe("PostgreSQL authentication store", () => {
       indexes.rows.map(({ name }) => name),
       [
         "auth_sessions_expiry_idx",
+        "auth_sessions_last_seen_idx",
         "auth_sessions_token_hash_unique",
         "auth_sessions_user_id_idx",
         "oidc_auth_flows_expires_at_idx",
