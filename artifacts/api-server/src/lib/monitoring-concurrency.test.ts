@@ -26,7 +26,7 @@ describe("Phase 21: Monitoring concurrency and invariants", () => {
           FROM pg_indexes 
           WHERE schemaname = current_schema() 
           AND tablename = 'monitoring_incidents'
-          AND indexdef ILIKE '%status = '\''open'\''%'
+          AND indexdef ILIKE '%status = ''open''%'
         `,
       });
 

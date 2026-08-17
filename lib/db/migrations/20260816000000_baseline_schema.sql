@@ -18,9 +18,9 @@ CREATE TABLE users (
   email TEXT,
   display_name TEXT,
   email_verified BOOLEAN,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_login_at TIMESTAMPTZ
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Devices inventory

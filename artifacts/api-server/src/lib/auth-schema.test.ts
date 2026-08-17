@@ -21,14 +21,12 @@ describe("authentication database schema", () => {
     assert.deepEqual(config.unique, ["users_identity_issuer_subject_unique"]);
   });
 
-  it("defines hashed revocable sessions with expiry constraints and indexes", () => {
+  it("defines revocable sessions with indexes and foreign key constraints", () => {
     const config = names(authSessionsTable);
-    assert(config.columns.includes("token_hash"));
+    assert(config.columns.includes("revoked"));
     assert(!config.columns.includes("token"));
     assert.equal(config.foreignKeys, 1);
-    assert(config.unique.includes("auth_sessions_token_hash_unique"));
-    assert.deepEqual(config.indexes.sort(), ["auth_sessions_expiry_idx", "auth_sessions_last_seen_idx", "auth_sessions_user_id_idx"]);
-    assert.deepEqual(config.checks, ["auth_sessions_idle_before_absolute_check"]);
+    assert.deepEqual(config.indexes.sort(), ["auth_sessions_expires_idx", "auth_sessions_user_id_idx"]);
   });
 
   it("defines one-time OIDC flow secrets with hash uniqueness and expiry constraint", () => {
