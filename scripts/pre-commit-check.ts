@@ -9,7 +9,7 @@ function runCommand(cmd, cwd) {
 describe("Pre-commit verification", () => {
   it("typecheck passes", () => {
     const result = runCommand("pnpm run typecheck", "/Users/bgray/Dashboard_Test");
-    assert.doesNotMatch(result, "error");
+    assert.doesNotMatch(result, /error/i);
   });
 
   it("schema tests pass", () => {

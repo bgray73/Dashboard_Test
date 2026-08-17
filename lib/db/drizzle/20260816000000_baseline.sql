@@ -1,284 +1,211 @@
 -- LabOps Database Migration
--- Generated from Drizzle ORM schema
+-- Minimal working schema
 
--- Enums (with IF NOT EXISTS for idempotency)
-CREATE TYPE IF NOT EXISTS "public"."collector_status" AS ENUM('active', 'revoked');
-CREATE TYPE IF NOT EXISTS "public"."reachability_job_status" AS ENUM('queued', 'leased', 'completed', 'expired');
-CREATE TYPE IF NOT EXISTS "public"."user_roles" AS ENUM('admin', 'operator', 'viewer');
-CREATE TYPE IF NOT EXISTS "public"."notification_type" AS ENUM('email', 'webhook', 'sms');
+-- Enable extensions
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Core tables (with IF NOT EXISTS)
-CREATE TABLE IF NOT EXISTS "devices" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"hostname" text NOT NULL,
-	"management_ip" text NOT NULL,
-	"device_type" text NOT NULL,
-	"vendor" text NOT NULL,
-	"model" text DEFAULT '' NOT NULL,
-	"operating_system" text DEFAULT '' NOT NULL,
-	"location" text DEFAULT '' NOT NULL,
-	"serial_number" text DEFAULT '' NOT NULL,
-	"notes" text DEFAULT '' NOT NULL,
-	"monitoring_enabled" boolean DEFAULT false NOT NULL,
-	"maintenance_mode" boolean DEFAULT false NOT NULL,
-	"maintenance_starts_at" timestamp with time zone,
-	"maintenance_ends_at" timestamp with time zone,
-	"monitoring_interval_seconds" integer DEFAULT 60 NOT NULL,
-	"last_status" text DEFAULT 'unknown' NOT NULL,
-	"last_checked_at" timestamp with time zone,
-	"last_latency_ms" integer,
-	"consecutive_failures" integer DEFAULT 0 NOT NULL,
-	"is_sample" boolean DEFAULT false NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+-- Enums
+CREATE TYPE IF NOT EXISTS collector_status AS ENUM ('active', 'revoked');
+CREATE TYPE IF NOT EXISTS reachability_job_status AS ENUM ('queued', 'leased', 'completed', 'expired');
+CREATE TYPE IF NOT EXISTS user_roles AS ENUM ('admin', 'operator', 'viewer');
+CREATE TYPE IF NOT EXISTS notification_type AS ENUM ('email', 'webhook', 'sms');
+
+-- Core tables
+CREATE TABLE IF NOT EXISTS devices (
+    id SERIAL PRIMARY KEY,
+    hostname TEXT NOT NULL,
+    management_ip TEXT NOT NULL,
+    device_type TEXT NOT NULL,
+    vendor TEXT NOT NULL,
+    model TEXT DEFAULT '' NOT NULL,
+    operating_system TEXT DEFAULT '' NOT NULL,
+    location TEXT DEFAULT '' NOT NULL,
+    serial_number TEXT DEFAULT '' NOT NULL,
+    notes TEXT DEFAULT '' NOT NULL,
+    monitoring_enabled BOOLEAN DEFAULT false NOT NULL,
+    maintenance_mode BOOLEAN DEFAULT false NOT NULL,
+    maintenance_starts_at TIMESTAMP WITH TIME ZONE,
+    maintenance_ends_at TIMESTAMP WITH TIME ZONE,
+    monitoring_interval_seconds INTEGER DEFAULT 60 NOT NULL,
+    last_status TEXT DEFAULT 'unknown' NOT NULL,
+    last_checked_at TIMESTAMP WITH TIME ZONE,
+    last_latency_ms INTEGER,
+    consecutive_failures INTEGER DEFAULT 0 NOT NULL,
+    is_sample BOOLEAN DEFAULT false NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "saved_configurations" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"name" text NOT NULL,
-	"vendor" text NOT NULL,
-	"configuration_type" text NOT NULL,
-	"associated_device_id" integer,
-	"generated_configuration" text NOT NULL,
-	"notes" text DEFAULT '' NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+    identity_issuer TEXT NOT NULL,
+    identity_subject TEXT NOT NULL,
+    email TEXT,
+    display_name TEXT,
+    email_verified BOOLEAN,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT users_identity_issuer_subject_unique UNIQUE (identity_issuer, identity_subject)
 );
 
-CREATE TABLE IF NOT EXISTS "application_settings" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"application_name" text DEFAULT 'LabOps' NOT NULL,
-	"default_theme" text DEFAULT 'dark' NOT NULL,
-	"default_config_vendor" text DEFAULT 'Cisco IOS / IOS-XE' NOT NULL,
-	"ping_timeout_seconds" integer DEFAULT 3 NOT NULL,
-	"monitoring_retention_days" integer DEFAULT 30 NOT NULL,
-	"webhook_enabled" boolean DEFAULT false NOT NULL,
-	"webhook_url" text DEFAULT '' NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    idle_expires_at TIMESTAMP WITH TIME ZONE,
+    absolute_expires_at TIMESTAMP WITH TIME ZONE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    user_agent TEXT,
+    ip_address TEXT,
+    CONSTRAINT auth_sessions_token_hash_unique UNIQUE (token_hash),
+    CONSTRAINT auth_sessions_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "users" (
-	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
-	"identity_issuer" text NOT NULL,
-	"identity_subject" text NOT NULL,
-	"email" text,
-	"display_name" text,
-	"email_verified" boolean,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"last_login_at" timestamp with time zone,
-	CONSTRAINT "users_identity_issuer_subject_unique" UNIQUE("identity_issuer","identity_subject")
+CREATE TABLE IF NOT EXISTS roles (
+    id SERIAL PRIMARY KEY,
+    role user_roles NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "auth_sessions" (
-	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
-	"user_id" text NOT NULL,
-	"token_hash" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"expires_at" timestamp with time zone NOT NULL,
-	"idle_expires_at" timestamp with time zone,
-	"absolute_expires_at" timestamp with time zone,
-	"revoked_at" timestamp with time zone,
-	"user_agent" text,
-	"ip_address" text,
-	CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE("token_hash"),
-	CONSTRAINT "auth_sessions_idle_before_absolute_check" CHECK ("auth_sessions"."idle_expires_at" < "auth_sessions"."absolute_expires_at")
+CREATE TABLE IF NOT EXISTS user_role_memberships (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    role_id INTEGER NOT NULL,
+    granted_by TEXT,
+    granted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT user_role_memberships_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT user_role_memberships_role_id_roles_id_fk FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT user_role_memberships_granted_by_users_id_fk FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "oidc_auth_flows" (
-	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
-	"state_hash" text NOT NULL,
-	"state" text NOT NULL,
-	"nonce" text NOT NULL,
-	"pkce_verifier" text NOT NULL,
-	"issuer" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"expires_at" timestamp with time zone NOT NULL
+CREATE TABLE IF NOT EXISTS oidc_auth_flows (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+    state_hash TEXT NOT NULL,
+    state TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    pkce_verifier TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "roles" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"role" "user_roles" NOT NULL,
-	"description" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE IF NOT EXISTS collectors (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    hostname TEXT,
+    token_hash TEXT NOT NULL,
+    status collector_status DEFAULT 'active' NOT NULL,
+    capabilities JSONB DEFAULT '["icmp"]'::JSONB NOT NULL,
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    CONSTRAINT collectors_name_unique UNIQUE (name),
+    CONSTRAINT collectors_token_hash_unique UNIQUE (token_hash)
 );
 
-CREATE TABLE IF NOT EXISTS "user_role_memberships" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"user_id" text NOT NULL,
-	"role_id" integer NOT NULL,
-	"granted_by" text,
-	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"expires_at" timestamp with time zone
+CREATE TABLE IF NOT EXISTS reachability_jobs (
+    id SERIAL PRIMARY KEY,
+    collector_id INTEGER,
+    device_id INTEGER NOT NULL,
+    target TEXT NOT NULL,
+    status reachability_job_status DEFAULT 'queued' NOT NULL,
+    timeout_ms INTEGER DEFAULT 5000 NOT NULL,
+    attempt_count INTEGER DEFAULT 0 NOT NULL,
+    lease_id TEXT,
+    lease_expires_at TIMESTAMP WITH TIME ZONE,
+    result_status TEXT,
+    latency_ms INTEGER,
+    error_code TEXT,
+    error_message TEXT,
+    result_digest TEXT,
+    queued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    leased_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT reachability_jobs_timeout_positive CHECK (timeout_ms > 0),
+    CONSTRAINT reachability_jobs_timeout_bounded CHECK (timeout_ms <= 30000),
+    CONSTRAINT reachability_jobs_attempt_count_nonnegative CHECK (attempt_count >= 0),
+    CONSTRAINT reachability_jobs_result_status_valid CHECK (result_status IS NULL OR result_status IN ('online', 'offline', 'unknown')),
+    CONSTRAINT reachability_jobs_lease_consistent CHECK (status <> 'leased' OR (collector_id IS NOT NULL AND lease_id IS NOT NULL AND lease_expires_at IS NOT NULL))
 );
 
-CREATE TABLE IF NOT EXISTS "monitoring_history" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"device_id" integer NOT NULL,
-	"checked_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"status" text NOT NULL,
-	"latency_ms" integer,
-	"error_message" text,
-	"consecutive_failures" integer DEFAULT 0 NOT NULL,
-	"source" text DEFAULT 'automated' NOT NULL,
-	"idempotency_identifier" text,
-	CONSTRAINT "monitoring_history_device_checked_idx_device_id_key" UNIQUE ("device_id","checked_at")
+CREATE TABLE IF NOT EXISTS monitoring_history (
+    id SERIAL PRIMARY KEY,
+    device_id INTEGER NOT NULL,
+    checked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    status TEXT NOT NULL,
+    latency_ms INTEGER,
+    error_message TEXT,
+    consecutive_failures INTEGER DEFAULT 0 NOT NULL,
+    source TEXT DEFAULT 'automated' NOT NULL,
+    idempotency_identifier TEXT,
+    CONSTRAINT monitoring_history_device_checked_idx_device_id_key UNIQUE (device_id, checked_at),
+    CONSTRAINT monitoring_history_device_id_devices_id_fk FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "monitoring_incidents" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"device_id" integer NOT NULL,
-	"started_at" timestamp with time zone NOT NULL,
-	"last_failure_at" timestamp with time zone NOT NULL,
-	"resolved_at" timestamp with time zone,
-	"status" text DEFAULT 'open' NOT NULL,
-	"acknowledged_at" timestamp with time zone,
-	"acknowledged_by" text,
-	"operator_note" text,
-	"peak_failures" integer DEFAULT 0 NOT NULL,
-	"duration_seconds" integer,
-	"error_message" text,
-	"resolution_reason" text,
-	"idempotency_identifier" text,
-	CONSTRAINT "monitoring_incidents_peak_failures_nonnegative" CHECK ("monitoring_incidents"."peak_failures" >= 0),
-	CONSTRAINT "monitoring_incidents_duration_nonnegative" CHECK ("monitoring_incidents"."duration_seconds" is null or "monitoring_incidents"."duration_seconds" >= 0)
+CREATE TABLE IF NOT EXISTS monitoring_incidents (
+    id SERIAL PRIMARY KEY,
+    device_id INTEGER NOT NULL,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_failure_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    resolved_at TIMESTAMP WITH TIME ZONE,
+    status TEXT DEFAULT 'open' NOT NULL,
+    acknowledged_at TIMESTAMP WITH TIME ZONE,
+    acknowledged_by TEXT,
+    operator_note TEXT,
+    peak_failures INTEGER DEFAULT 0 NOT NULL,
+    duration_seconds INTEGER,
+    error_message TEXT,
+    resolution_reason TEXT,
+    idempotency_identifier TEXT,
+    CONSTRAINT monitoring_incidents_peak_failures_nonnegative CHECK (peak_failures >= 0),
+    CONSTRAINT monitoring_incidents_device_id_devices_id_fk FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "notification_deliveries" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"incident_id" integer,
-	"event_type" "notification_type" NOT NULL,
-	"destination" text NOT NULL,
-	"status" text DEFAULT 'pending' NOT NULL,
-	"response_status" integer,
-	"error_message" text,
-	"payload" jsonb NOT NULL,
-	"attempt_count" integer DEFAULT 0 NOT NULL,
-	"next_attempt_at" timestamp with time zone,
-	"attempted_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"delivered_at" timestamp with time zone
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id SERIAL PRIMARY KEY,
+    incident_id INTEGER,
+    event_type notification_type NOT NULL,
+    destination TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    response_status INTEGER,
+    error_message TEXT,
+    payload JSONB NOT NULL,
+    attempt_count INTEGER DEFAULT 0 NOT NULL,
+    next_attempt_at TIMESTAMP WITH TIME ZONE,
+    attempted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT notification_deliveries_incident_id_monitoring_incidents_id_fk FOREIGN KEY (incident_id) REFERENCES monitoring_incidents(id) ON DELETE SET NULL ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "maintenance_history" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"device_id" integer NOT NULL,
-	"event_type" text NOT NULL,
-	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"maintenance_starts_at" timestamp with time zone,
-	"maintenance_ends_at" timestamp with time zone
+CREATE TABLE IF NOT EXISTS maintenance_history (
+    id SERIAL PRIMARY KEY,
+    device_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    maintenance_starts_at TIMESTAMP WITH TIME ZONE,
+    maintenance_ends_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT maintenance_history_device_id_devices_id_fk FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "incident_activity" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"incident_id" integer NOT NULL,
-	"event_type" text NOT NULL,
-	"actor" text,
-	"note" text,
-	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE IF NOT EXISTS incident_activity (
+    id SERIAL PRIMARY KEY,
+    incident_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    actor TEXT,
+    note TEXT,
+    occurred_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    CONSTRAINT incident_activity_incident_id_monitoring_incidents_id_fk FOREIGN KEY (incident_id) REFERENCES monitoring_incidents(id) ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
-CREATE TABLE IF NOT EXISTS "collectors" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"name" text NOT NULL,
-	"hostname" text,
-	"token_hash" text NOT NULL,
-	"status" "collector_status" DEFAULT 'active' NOT NULL,
-	"capabilities" jsonb DEFAULT '["icmp"]'::jsonb NOT NULL,
-	"last_seen_at" timestamp with time zone,
-	"revoked_at" timestamp with time zone,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "collectors_name_unique" UNIQUE("name"),
-	CONSTRAINT "collectors_token_hash_unique" UNIQUE("token_hash")
-);
-
-CREATE TABLE IF NOT EXISTS "reachability_jobs" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"collector_id" integer,
-	"device_id" integer NOT NULL,
-	"target" text NOT NULL,
-	"status" "reachability_job_status" DEFAULT 'queued' NOT NULL,
-	"timeout_ms" integer DEFAULT 5000 NOT NULL,
-	"attempt_count" integer DEFAULT 0 NOT NULL,
-	"lease_id" text,
-	"lease_expires_at" timestamp with time zone,
-	"result_status" text,
-	"latency_ms" integer,
-	"error_code" text,
-	"error_message" text,
-	"result_digest" text,
-	"queued_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"leased_at" timestamp with time zone,
-	"completed_at" timestamp with time zone,
-	"expires_at" timestamp with time zone NOT NULL,
-	CONSTRAINT "reachability_jobs_timeout_positive" CHECK ("reachability_jobs"."timeout_ms" > 0),
-	CONSTRAINT "reachability_jobs_timeout_bounded" CHECK ("reachability_jobs"."timeout_ms" <= 30000),
-	CONSTRAINT "reachability_jobs_attempt_count_nonnegative" CHECK ("reachability_jobs"."attempt_count" >= 0),
-	CONSTRAINT "reachability_jobs_latency_nonnegative" CHECK ("reachability_jobs"."latency_ms" is null or "reachability_jobs"."latency_ms" >= 0),
-	CONSTRAINT "reachability_jobs_latency_bounded" CHECK ("reachability_jobs"."latency_ms" is null or "reachability_jobs"."latency_ms" <= 3600000),
-	CONSTRAINT "reachability_jobs_result_status_valid" CHECK ("reachability_jobs"."result_status" is null or "reachability_jobs"."result_status" in ('online', 'offline', 'unknown')),
-	CONSTRAINT "reachability_jobs_error_code_bounded" CHECK ("reachability_jobs"."error_code" is null or length("reachability_jobs"."error_code") <= 64),
-	CONSTRAINT "reachability_jobs_error_message_bounded" CHECK ("reachability_jobs"."error_message" is null or length("reachability_jobs"."error_message") <= 512),
-	CONSTRAINT "reachability_jobs_lease_consistent" CHECK ("reachability_jobs"."status" <> 'leased' or ("reachability_jobs"."collector_id" is not null and "reachability_jobs"."lease_id" is not null and "reachability_jobs"."lease_expires_at" is not null))
-);
-
--- Foreign Keys (only add if not exists)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'saved_configurations_associated_device_id_devices_id_fk') THEN
-        ALTER TABLE "saved_configurations" ADD CONSTRAINT "saved_configurations_associated_device_id_devices_id_fk" FOREIGN KEY ("associated_device_id") REFERENCES "public"."devices"("id") ON DELETE set null ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'monitoring_history_device_id_devices_id_fk') THEN
-        ALTER TABLE "monitoring_history" ADD CONSTRAINT "monitoring_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'monitoring_incidents_device_id_devices_id_fk') THEN
-        ALTER TABLE "monitoring_incidents" ADD CONSTRAINT "monitoring_incidents_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'notification_deliveries_incident_id_monitoring_incidents_id_fk') THEN
-        ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "public"."monitoring_incidents"("id") ON DELETE set null ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'maintenance_history_device_id_devices_id_fk') THEN
-        ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'incident_activity_incident_id_monitoring_incidents_id_fk') THEN
-        ALTER TABLE "incident_activity" ADD CONSTRAINT "incident_activity_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "public"."monitoring_incidents"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'reachability_jobs_collector_id_collectors_id_fk') THEN
-        ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_collector_id_collectors_id_fk" FOREIGN KEY ("collector_id") REFERENCES "public"."collectors"("id") ON DELETE set null ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'reachability_jobs_device_id_devices_id_fk') THEN
-        ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'auth_sessions_user_id_users_id_fk') THEN
-        ALTER TABLE "auth_sessions" ADD CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'user_role_memberships_user_id_users_id_fk') THEN
-        ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'user_role_memberships_role_id_roles_id_fk') THEN
-        ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_role_id_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."roles"("id") ON DELETE cascade ON UPDATE no action;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'user_role_memberships_granted_by_users_id_fk') THEN
-        ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_granted_by_users_id_fk" FOREIGN KEY ("granted_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
-    END IF;
-END $$;
-
--- Indexes (only add if not exists)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'roles_role_unique') THEN
-        CREATE UNIQUE INDEX "roles_role_unique" ON "roles" USING btree ("role");
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'user_role_membership_user_role_unique') THEN
-        CREATE UNIQUE INDEX "user_role_membership_user_role_unique" ON "user_role_memberships" USING btree ("user_id","role_id");
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'auth_sessions_token_hash_unique') THEN
-        CREATE UNIQUE INDEX "auth_sessions_token_hash_unique" ON "auth_sessions" USING btree ("token_hash");
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'auth_sessions_user_id_users_id_fk' AND relkind = 'f') THEN
-        -- Already handled by FK block above
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE constraintname = 'auth_sessions_user_id_users_id_fk') THEN
-        -- Already handled by FK block above
-    END IF;
-END $$;
+-- Indexes
+CREATE INDEX IF NOT EXISTS roles_role_unique ON roles (role);
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions (expires_at);
+CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows (expires_at);

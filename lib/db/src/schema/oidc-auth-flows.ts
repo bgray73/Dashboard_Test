@@ -15,7 +15,7 @@ export const oidcAuthFlowsTable = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
-    index("oidc_auth_flows_expires_idx").on(table.expiresAt),
+    index("oidc_auth_flows_expires_at_idx").on(table.expiresAt),
   ],
 );
 
