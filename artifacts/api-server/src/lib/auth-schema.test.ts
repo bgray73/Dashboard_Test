@@ -32,6 +32,11 @@ describe("authentication database schema", () => {
     // Verify no raw "token" column (should be token_hash)
     assert(!config.columns.includes("token"));
     assert.equal(config.foreignKeys, 1);
+    // Verify indexes after sorting (alphabetical order)
+    assert.deepEqual(config.indexes.sort(), [
+      "auth_sessions_expiry_idx",
+      "auth_sessions_user_id_idx",
+    ]);
   });
 
   it("defines one-time OIDC flow secrets", () => {
