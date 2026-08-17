@@ -1,6 +1,6 @@
-import { index, text, timestamp, unique, check } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { check, index, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { pgTable } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const oidcAuthFlowsTable = pgTable(
   "oidc_auth_flows",
@@ -15,8 +15,8 @@ export const oidcAuthFlowsTable = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
-    unique("oidc_auth_flows_state_hash_unique").on(table.stateHash),
     index("oidc_auth_flows_expires_at_idx").on(table.expiresAt),
+    unique("oidc_auth_flows_state_hash_unique").on(table.stateHash),
     check("oidc_auth_flows_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
   ],
 );

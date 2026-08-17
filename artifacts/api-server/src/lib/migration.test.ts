@@ -68,12 +68,11 @@ describe("Phase 23: Migration infrastructure", () => {
         text: `
           SELECT table_name 
           FROM information_schema.tables 
-          WHERE table_schema = 'public'
+          WHERE table_schema = 'public' 
           AND table_name = ANY($1)
           ORDER BY table_name
         `,
         values: [tables],
-        
       });
 
       const existingTables = result.rows.map((r) => r.table_name);
@@ -100,7 +99,6 @@ describe("Phase 23: Migration infrastructure", () => {
             WHERE typname = $1
           `,
           values: [enumName],
-          
         });
 
         assert.equal(result.rowCount, 1, `Enum '${enumName}' not found`);

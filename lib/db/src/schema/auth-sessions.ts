@@ -1,6 +1,6 @@
-import { index, text, timestamp, unique, check } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { index, text, timestamp, check } from "drizzle-orm/pg-core";
 import { pgTable } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { usersTable } from "./users";
 
 export const authSessionsTable = pgTable(
@@ -8,21 +8,21 @@ export const authSessionsTable = pgTable(
   {
     id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
     userId: text("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
-    tokenHash: text("token_hash").notNull(),
-    idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
-    absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }).notNull(),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    tokenHash: text("token_hash").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }),
+    absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     userAgent: text("user_agent"),
     ipAddress: text("ip_address"),
   },
   (table) => [
-    unique("auth_sessions_token_hash_unique").on(table.tokenHash),
     index("auth_sessions_expiry_idx").on(table.idleExpiresAt, table.absoluteExpiresAt),
-    index("auth_sessions_user_id_idx").on(table.userId),
     index("auth_sessions_last_seen_idx").on(table.lastSeenAt),
-    check("auth_sessions_idle_before_absolute_check", sql`${table.idleExpiresAt} <= ${table.absoluteExpiresAt}`),
+    index("auth_sessions_user_id_idx").on(table.userId),
+    check("auth_sessions_idle_before_absolute_check", sql`${table.idleExpiresAt} < ${table.absoluteExpiresAt}`),
   ],
 );
 

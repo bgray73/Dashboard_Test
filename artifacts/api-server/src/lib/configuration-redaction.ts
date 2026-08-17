@@ -99,16 +99,6 @@ export function generateSafeConfiguration(
 }
 
 /**
- * Check if input contains forbidden password fields
- * Phase 24: Server-enforced non-persistence
- * Returns true if password fields are present (should be rejected)
- */
-export function hasForbiddenPasswords(input: Record<string, unknown>): boolean {
-  const forbiddenKeys = ['authPassword', 'privacyPassword', 'auth_password', 'privacy_password'];
-  return forbiddenKeys.some(key => key in input);
-}
-
-/**
  * Validate that a configuration input is safe (no embedded secrets)
  * Phase 24: Strict server enforcement - rejects any cleartext secrets
  */
@@ -117,20 +107,14 @@ export function validateConfigurationInput(input: {
   authPassword?: string;
   privacyPassword?: string;
 }): { valid: boolean; error?: string } {
-  // Phase 24: Reject direct auth/password fields
-  if (input.authPassword !== undefined) {
+  // Phase 24: Reject forbidden password fields
+  if (hasForbiddenPasswords(input)) {
     return {
       valid: false,
-      error: "auth password is not allowed in request; use server-side secret store"
+      error: "Configuration contains forbidden auth password and privacy password fields that must be managed server-side"
     };
   }
-  if (input.privacyPassword !== undefined) {
-    return {
-      valid: false,
-      error: "privacy password is not allowed in request; use server-side secret store"
-    };
-  }
-  
+
   // Check generated configuration for embedded secrets
   if (input.generatedConfiguration && input.generatedConfiguration.length > 0) {
     const { hasSecrets, patterns } = containsSecrets(input.generatedConfiguration);
@@ -141,6 +125,15 @@ export function validateConfigurationInput(input: {
       };
     }
   }
-  
+
   return { valid: true };
+}
+
+/**
+ * Phase 24: Check if input contains forbidden password fields
+ * Returns true if password fields are present (should be rejected)
+ */
+export function hasForbiddenPasswords(input: Record<string, unknown>): boolean {
+  const forbiddenKeys = ['authPassword', 'privacyPassword', 'auth_password', 'privacy_password'];
+  return forbiddenKeys.some(key => key in input);
 }
