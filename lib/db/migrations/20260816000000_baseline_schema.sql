@@ -14,16 +14,16 @@ CREATE TABLE "devices" (
 	"notes" text DEFAULT '' NOT NULL,
 	"monitoring_enabled" boolean DEFAULT false NOT NULL,
 	"maintenance_mode" boolean DEFAULT false NOT NULL,
-	"maintenance_starts_at" timestamp with time zone,
-	"maintenance_ends_at" timestamp with time zone,
+	"maintenance_starts_at" TIMESTAMP WITH TIME ZONE,
+	"maintenance_ends_at" TIMESTAMP WITH TIME ZONE,
 	"monitoring_interval_seconds" integer DEFAULT 60 NOT NULL,
 	"last_status" text DEFAULT 'unknown' NOT NULL,
-	"last_checked_at" timestamp with time zone,
+	"last_checked_at" TIMESTAMP WITH TIME ZONE,
 	"last_latency_ms" integer,
 	"consecutive_failures" integer DEFAULT 0 NOT NULL,
 	"is_sample" boolean DEFAULT false NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE TABLE "saved_configurations" (
@@ -34,8 +34,8 @@ CREATE TABLE "saved_configurations" (
 	"associated_device_id" integer,
 	"generated_configuration" text NOT NULL,
 	"notes" text DEFAULT '' NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE TABLE "application_settings" (
@@ -47,13 +47,13 @@ CREATE TABLE "application_settings" (
 	"monitoring_retention_days" integer DEFAULT 30 NOT NULL,
 	"webhook_enabled" boolean DEFAULT false NOT NULL,
 	"webhook_url" text DEFAULT '' NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE TABLE "monitoring_history" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"device_id" integer NOT NULL,
-	"checked_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"checked_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
 	"status" text NOT NULL,
 	"latency_ms" integer,
 	"error_message" text,
@@ -65,11 +65,11 @@ CREATE TABLE "monitoring_history" (
 CREATE TABLE "monitoring_incidents" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"device_id" integer NOT NULL,
-	"started_at" timestamp with time zone NOT NULL,
-	"last_failure_at" timestamp with time zone NOT NULL,
-	"resolved_at" timestamp with time zone,
+	"started_at" TIMESTAMP WITH TIME ZONE NOT NULL,
+	"last_failure_at" TIMESTAMP WITH TIME ZONE NOT NULL,
+	"resolved_at" TIMESTAMP WITH TIME ZONE,
 	"status" text DEFAULT 'open' NOT NULL,
-	"acknowledged_at" timestamp with time zone,
+	"acknowledged_at" TIMESTAMP WITH TIME ZONE,
 	"acknowledged_by" text,
 	"operator_note" text,
 	"peak_failures" integer DEFAULT 0 NOT NULL,
@@ -91,18 +91,18 @@ CREATE TABLE "notification_deliveries" (
 	"error_message" text,
 	"payload" jsonb NOT NULL,
 	"attempt_count" integer DEFAULT 0 NOT NULL,
-	"next_attempt_at" timestamp with time zone,
-	"attempted_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"delivered_at" timestamp with time zone
+	"next_attempt_at" TIMESTAMP WITH TIME ZONE,
+	"attempted_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"delivered_at" TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE "maintenance_history" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"device_id" integer NOT NULL,
 	"event_type" text NOT NULL,
-	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"maintenance_starts_at" timestamp with time zone,
-	"maintenance_ends_at" timestamp with time zone
+	"occurred_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"maintenance_starts_at" TIMESTAMP WITH TIME ZONE,
+	"maintenance_ends_at" TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE "incident_activity" (
@@ -111,7 +111,7 @@ CREATE TABLE "incident_activity" (
 	"event_type" text NOT NULL,
 	"actor" text,
 	"note" text,
-	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL
+	"occurred_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE TABLE "collectors" (
@@ -121,10 +121,10 @@ CREATE TABLE "collectors" (
 	"token_hash" text NOT NULL,
 	"status" "collector_status" DEFAULT 'active' NOT NULL,
 	"capabilities" jsonb DEFAULT '["icmp"]'::jsonb NOT NULL,
-	"last_seen_at" timestamp with time zone,
-	"revoked_at" timestamp with time zone,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_seen_at" TIMESTAMP WITH TIME ZONE,
+	"revoked_at" TIMESTAMP WITH TIME ZONE,
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
 	CONSTRAINT "collectors_name_unique" UNIQUE("name"),
 	CONSTRAINT "collectors_token_hash_unique" UNIQUE("token_hash")
 );
@@ -138,16 +138,16 @@ CREATE TABLE "reachability_jobs" (
 	"timeout_ms" integer DEFAULT 5000 NOT NULL,
 	"attempt_count" integer DEFAULT 0 NOT NULL,
 	"lease_id" text,
-	"lease_expires_at" timestamp with time zone,
+	"lease_expires_at" TIMESTAMP WITH TIME ZONE,
 	"result_status" text,
 	"latency_ms" integer,
 	"error_code" text,
 	"error_message" text,
 	"result_digest" text,
-	"queued_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"leased_at" timestamp with time zone,
-	"completed_at" timestamp with time zone,
-	"expires_at" timestamp with time zone NOT NULL,
+	"queued_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"leased_at" TIMESTAMP WITH TIME ZONE,
+	"completed_at" TIMESTAMP WITH TIME ZONE,
+	"expires_at" TIMESTAMP WITH TIME ZONE NOT NULL,
 	CONSTRAINT "reachability_jobs_timeout_positive" CHECK ("reachability_jobs"."timeout_ms" > 0),
 	CONSTRAINT "reachability_jobs_timeout_bounded" CHECK ("reachability_jobs"."timeout_ms" <= 30000),
 	CONSTRAINT "reachability_jobs_attempt_count_nonnegative" CHECK ("reachability_jobs"."attempt_count" >= 0),
@@ -166,9 +166,9 @@ CREATE TABLE "users" (
 	"email" text,
 	"display_name" text,
 	"email_verified" boolean,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"last_login_at" timestamp with time zone,
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"last_login_at" TIMESTAMP WITH TIME ZONE,
 	CONSTRAINT "users_identity_issuer_subject_unique" UNIQUE("identity_issuer","identity_subject")
 );
 
@@ -176,11 +176,11 @@ CREATE TABLE "auth_sessions" (
 	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
 	"user_id" text NOT NULL,
 	"token_hash" text NOT NULL,
-	"idle_expires_at" timestamp with time zone NOT NULL,
-	"absolute_expires_at" timestamp with time zone NOT NULL,
-	"revoked_at" timestamp with time zone,
-	"last_seen_at" timestamp with time zone,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"idle_expires_at" TIMESTAMP WITH TIME ZONE NOT NULL,
+	"absolute_expires_at" TIMESTAMP WITH TIME ZONE NOT NULL,
+	"revoked_at" TIMESTAMP WITH TIME ZONE,
+	"last_seen_at" TIMESTAMP WITH TIME ZONE,
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
 	"user_agent" text,
 	"ip_address" text,
 	CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE("token_hash"),
@@ -194,8 +194,8 @@ CREATE TABLE "oidc_auth_flows" (
 	"nonce" text NOT NULL,
 	"pkce_verifier" text NOT NULL,
 	"issuer" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"expires_at" timestamp with time zone NOT NULL,
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"expires_at" TIMESTAMP WITH TIME ZONE NOT NULL,
 	CONSTRAINT "oidc_auth_flows_state_hash_unique" UNIQUE("state_hash"),
 	CONSTRAINT "oidc_auth_flows_expiry_check" CHECK ("oidc_auth_flows"."expires_at" > "oidc_auth_flows"."created_at")
 );
@@ -204,7 +204,7 @@ CREATE TABLE "roles" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"role" "user_roles" NOT NULL,
 	"description" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE TABLE "user_role_memberships" (
@@ -212,8 +212,8 @@ CREATE TABLE "user_role_memberships" (
 	"user_id" text NOT NULL,
 	"role_id" integer NOT NULL,
 	"granted_by" text,
-	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"expires_at" timestamp with time zone
+	"granted_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	"expires_at" TIMESTAMP WITH TIME ZONE
 );
 
 ALTER TABLE "monitoring_history" ADD CONSTRAINT "monitoring_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
