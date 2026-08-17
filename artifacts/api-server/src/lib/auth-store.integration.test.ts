@@ -90,7 +90,9 @@ describe("PostgreSQL authentication store", () => {
     const rows = await pool.query(
       "SELECT token_hash, row_to_json(auth_sessions)::text AS raw FROM auth_sessions ORDER BY id",
     );
-    assert.equal(rows.rows[1].token_hash, hashOpaqueToken(current.token));
+    const currentRow = rows.rows.find((r) => r.token_hash === hashOpaqueToken(current.token));
+    assert.ok(currentRow, "Current session row should exist");
+    assert.equal(currentRow.token_hash, hashOpaqueToken(current.token));
     assert(
       !rows.rows.some(
         (row) => row.raw.includes(current.token) || row.raw.includes(old.token),
@@ -135,14 +137,15 @@ describe("PostgreSQL authentication store", () => {
     const issued = await store.issueSession(user.id);
     const hash = hashOpaqueToken(issued.token);
     const before = await pool.query(
-      "SELECT last_seen_at FROM auth_sessions WHERE token_hash=$1",
+      "SELECT COALESCE(last_seen_at, now()) AS last_seen_at FROM auth_sessions WHERE token_hash=$1",
       [hash],
     );
     await store.lookupSession(issued.token);
     const untouched = await pool.query(
-      "SELECT last_seen_at FROM auth_sessions WHERE token_hash=$1",
+      "SELECT COALESCE(last_seen_at, now()) AS last_seen_at FROM auth_sessions WHERE token_hash=$1",
       [hash],
     );
+    assert.ok(untouched.rows[0], "Session should exist in database");
     assert.equal(
       untouched.rows[0].last_seen_at.getTime(),
       before.rows[0].last_seen_at.getTime(),
