@@ -1,9 +1,10 @@
-import { boolean, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const usersTable = pgTable(
   "users",
   {
-    id: serial("id").primaryKey(),
+    id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
     identityIssuer: text("identity_issuer").notNull(),
     identitySubject: text("identity_subject").notNull(),
     email: text("email"),

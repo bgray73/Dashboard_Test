@@ -1,10 +1,11 @@
+import { index, text, timestamp, unique, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { check, index, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable } from "drizzle-orm/pg-core";
 
 export const oidcAuthFlowsTable = pgTable(
   "oidc_auth_flows",
   {
-    id: serial("id").primaryKey(),
+    id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
     stateHash: text("state_hash").notNull(),
     state: text("state").notNull(),
     nonce: text("nonce").notNull(),
