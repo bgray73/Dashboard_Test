@@ -7,7 +7,7 @@ async function createMigrationsTable() {
     CREATE TABLE IF NOT EXISTS drizzle_migrations (
       id SERIAL PRIMARY KEY,
       hash TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
 }
