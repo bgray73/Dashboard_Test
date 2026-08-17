@@ -40,7 +40,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Setup database schema
-        run: npx -C lib/db drizzle-kit push --config drizzle.config.ts
+        working-directory: lib/db
+        run: npx drizzle-kit push --config drizzle.config.ts
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run build
