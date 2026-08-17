@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE TABLE IF NOT EXISTS roles (
     id SERIAL PRIMARY KEY,
-    role user_roles NOT NULL,
+    "role" user_roles NOT NULL,
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS incident_activity (
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS roles_role_unique ON roles (role);
+CREATE INDEX IF NOT EXISTS roles_role_unique ON roles ("role");
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions (expires_at);
 CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_idx ON oidc_auth_flows (expires_at);
