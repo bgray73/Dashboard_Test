@@ -178,19 +178,22 @@ CREATE TABLE "auth_sessions" (
 	"token_hash" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
-	"last_seen_at" timestamp with time zone,
-	"revoked" text DEFAULT 'false' NOT NULL,
+	"idle_expires_at" timestamp with time zone,
+	"absolute_expires_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
 	"user_agent" text,
 	"ip_address" text,
 	CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE("token_hash"),
-	CONSTRAINT "auth_sessions_idle_before_absolute_check" CHECK ("auth_sessions"."expires_at" > "auth_sessions"."created_at")
+	CONSTRAINT "auth_sessions_idle_before_absolute_check" CHECK ("auth_sessions"."idle_expires_at" < "auth_sessions"."absolute_expires_at")
 );
 --> statement-breakpoint
 CREATE TABLE "oidc_auth_flows" (
 	"id" text PRIMARY KEY NOT NULL,
+	"state_hash" text NOT NULL,
 	"state" text NOT NULL,
 	"nonce" text NOT NULL,
 	"pkce_verifier" text NOT NULL,
+	"issuer" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL
 );
@@ -241,7 +244,7 @@ CREATE INDEX "reachability_jobs_collector_status_idx" ON "reachability_jobs" USI
 CREATE INDEX "reachability_jobs_device_queued_idx" ON "reachability_jobs" USING btree ("device_id","queued_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "reachability_jobs_one_active_per_device_idx" ON "reachability_jobs" USING btree ("device_id") WHERE "reachability_jobs"."status" in ('queued', 'leased');--> statement-breakpoint
 CREATE INDEX "auth_sessions_expiry_idx" ON "auth_sessions" USING btree ("expires_at");--> statement-breakpoint
-CREATE INDEX "auth_sessions_last_seen_idx" ON "auth_sessions" USING btree ("last_seen_at");--> statement-breakpoint
+CREATE INDEX "auth_sessions_last_seen_idx" ON "auth_sessions" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "auth_sessions_user_id_idx" ON "auth_sessions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oidc_auth_flows_expires_idx" ON "oidc_auth_flows" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "roles_role_unique" ON "roles" USING btree ("role");--> statement-breakpoint

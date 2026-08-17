@@ -1,13 +1,1 @@
-{
-  "version": "7",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1786939147233,
-      "tag": "0000_exotic_leader",
-      "breakpoints": true
-    }
-  ]
-}
+{"version": "1.0", "migrations": []}

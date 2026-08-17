@@ -1,4 +1,4 @@
-import { index, text, timestamp, check } from "drizzle-orm/pg-core";
+import { index, text, timestamp, check, uuid } from "drizzle-orm/pg-core";
 import { pgTable } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { usersTable } from "./users";
@@ -6,7 +6,7 @@ import { usersTable } from "./users";
 export const authSessionsTable = pgTable(
   "auth_sessions",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
     userId: text("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
