@@ -104,7 +104,17 @@ export function generateSafeConfiguration(
  */
 export function validateConfigurationInput(input: {
   generatedConfiguration?: string;
+  authPassword?: string;
+  privacyPassword?: string;
 }): { valid: boolean; error?: string } {
+  // Phase 24: Reject forbidden password fields
+  if (hasForbiddenPasswords(input)) {
+    return {
+      valid: false,
+      error: "Configuration contains forbidden auth password and privacy password fields that must be managed server-side"
+    };
+  }
+
   // Check generated configuration for embedded secrets
   if (input.generatedConfiguration && input.generatedConfiguration.length > 0) {
     const { hasSecrets, patterns } = containsSecrets(input.generatedConfiguration);
@@ -115,7 +125,7 @@ export function validateConfigurationInput(input: {
       };
     }
   }
-  
+
   return { valid: true };
 }
 

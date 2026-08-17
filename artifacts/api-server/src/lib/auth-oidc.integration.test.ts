@@ -50,11 +50,11 @@ class FakeProtocol implements OidcProtocol {
   }
 }
 
-beforeEach(async () =>
-  pool.query(
-    "TRUNCATE oidc_auth_flows, auth_sessions, users RESTART IDENTITY CASCADE",
-  ),
-);
+beforeEach(async () => {
+  await pool.query(
+    "TRUNCATE users, auth_sessions, oidc_auth_flows RESTART IDENTITY CASCADE",
+  );
+});
 
 async function assertNoUserOrSession() {
   const result = await pool.query(

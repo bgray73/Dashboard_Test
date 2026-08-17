@@ -35,6 +35,7 @@ describe("authentication database schema", () => {
     // Verify indexes after sorting (alphabetical order)
     assert.deepEqual(config.indexes.sort(), [
       "auth_sessions_expiry_idx",
+      "auth_sessions_last_seen_idx",
       "auth_sessions_user_id_idx",
     ]);
   });

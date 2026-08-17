@@ -16,7 +16,7 @@ const store = new AuthStore(pool, {
 before(async () => checkAuthSchemaReady(pool));
 beforeEach(async () => {
   await pool.query(
-    "TRUNCATE oidc_auth_flows, auth_sessions, users RESTART IDENTITY CASCADE",
+    "TRUNCATE users, auth_sessions, oidc_auth_flows RESTART IDENTITY CASCADE",
   );
 });
 
