@@ -18,9 +18,9 @@ export const userRoleMembershipsTable = pgTable(
   "user_role_memberships",
   {
     id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     roleId: integer("role_id").notNull().references(() => rolesTable.id, { onDelete: "cascade" }),
-    grantedBy: integer("granted_by").references(() => usersTable.id),
+    grantedBy: text("granted_by").references(() => usersTable.id),
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
   },

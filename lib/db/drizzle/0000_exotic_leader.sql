@@ -204,9 +204,9 @@ CREATE TABLE "roles" (
 --> statement-breakpoint
 CREATE TABLE "user_role_memberships" (
 	"id" serial PRIMARY KEY NOT NULL,
-	"user_id" integer NOT NULL,
+	"user_id" text NOT NULL,
 	"role_id" integer NOT NULL,
-	"granted_by" integer,
+	"granted_by" text,
 	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"expires_at" timestamp with time zone
 );

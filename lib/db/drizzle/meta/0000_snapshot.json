@@ -1,5 +1,5 @@
 {
-  "id": "e05b9050-bbef-4689-b076-88102471a492",
+  "id": "86d379da-bc7f-42e9-b156-6f6fecc3be81",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1731,7 +1731,7 @@
         },
         "user_id": {
           "name": "user_id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -1743,7 +1743,7 @@
         },
         "granted_by": {
           "name": "granted_by",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
