@@ -67,21 +67,26 @@ CREATE TABLE "auth_sessions" (
     "token_hash" text NOT NULL,
     "created_at" timestamp with time zone DEFAULT now() NOT NULL,
     "expires_at" timestamp with time zone NOT NULL,
-    "idle_expires_at" timestamp with time zone,
-    "absolute_expires_at" timestamp with time zone,
+    "idle_expires_at" timestamp with time zone NOT NULL,
+    "absolute_expires_at" timestamp with time zone NOT NULL,
     "revoked_at" timestamp with time zone,
+    "last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
     "user_agent" text,
     "ip_address" text,
-    CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
+    CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT auth_sessions_idle_before_absolute_check CHECK ("idle_expires_at" <= "absolute_expires_at")
 );
 
 CREATE UNIQUE INDEX auth_sessions_token_hash_unique ON "auth_sessions" ("token_hash");
 CREATE INDEX auth_sessions_user_id_idx ON "auth_sessions" ("user_id");
-CREATE INDEX auth_sessions_expiry_idx ON "auth_sessions" ("expires_at", "idle_expires_at", "absolute_expires_at");
+CREATE INDEX auth_sessions_expiry_idx ON "auth_sessions" ("idle_expires_at", "absolute_expires_at");
+CREATE INDEX auth_sessions_last_seen_idx ON "auth_sessions" ("last_seen_at");
 
 CREATE TABLE "roles" (
     "id" serial PRIMARY KEY,
-    "role" text NOT NULL
+    "role" text NOT NULL,
+    "description" text,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
 CREATE UNIQUE INDEX roles_role_unique ON "roles" ("role");
@@ -110,7 +115,8 @@ CREATE TABLE "oidc_auth_flows" (
     "pkce_verifier" text NOT NULL,
     "issuer" text NOT NULL,
     "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-    "expires_at" timestamp with time zone NOT NULL
+    "expires_at" timestamp with time zone NOT NULL,
+    CONSTRAINT oidc_auth_flows_expiry_check CHECK ("expires_at" > "created_at")
 );
 
 CREATE UNIQUE INDEX oidc_auth_flows_state_hash_unique ON "oidc_auth_flows" ("state_hash");
@@ -130,6 +136,8 @@ CREATE TABLE "collectors" (
     CONSTRAINT collectors_name_unique UNIQUE ("name"),
     CONSTRAINT collectors_token_hash_unique UNIQUE ("token_hash")
 );
+
+CREATE INDEX collectors_status_last_seen_idx ON "collectors" ("status", "last_seen_at");
 
 CREATE TABLE "reachability_jobs" (
     "id" serial PRIMARY KEY,
@@ -154,6 +162,10 @@ CREATE TABLE "reachability_jobs" (
     CONSTRAINT reachability_jobs_timeout_bounded CHECK ("timeout_ms" <= 30000),
     CONSTRAINT reachability_jobs_attempt_count_nonnegative CHECK ("attempt_count" >= 0),
     CONSTRAINT reachability_jobs_result_status_valid CHECK ("result_status" IS NULL OR "result_status" IN ('online', 'offline', 'unknown')),
+    CONSTRAINT reachability_jobs_latency_nonnegative CHECK ("latency_ms" IS NULL OR "latency_ms" >= 0),
+    CONSTRAINT reachability_jobs_latency_bounded CHECK ("latency_ms" IS NULL OR "latency_ms" <= 3600000),
+    CONSTRAINT reachability_jobs_error_code_bounded CHECK ("error_code" IS NULL OR length("error_code") <= 64),
+    CONSTRAINT reachability_jobs_error_message_bounded CHECK ("error_message" IS NULL OR length("error_message") <= 512),
     CONSTRAINT reachability_jobs_lease_consistent CHECK ("status" <> 'leased' OR ("collector_id" IS NOT NULL AND "lease_id" IS NOT NULL AND "lease_expires_at" IS NOT NULL))
 );
 
