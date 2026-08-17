@@ -72,16 +72,20 @@ CREATE TABLE "auth_sessions" (
     "revoked_at" timestamp with time zone,
     "user_agent" text,
     "ip_address" text,
-    CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE ("token_hash"),
     CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
+CREATE UNIQUE INDEX auth_sessions_token_hash_unique ON "auth_sessions" ("token_hash");
+CREATE INDEX auth_sessions_user_id_idx ON "auth_sessions" ("user_id");
+CREATE INDEX auth_sessions_expiry_idx ON "auth_sessions" ("expires_at", "idle_expires_at", "absolute_expires_at");
+
 CREATE TABLE "roles" (
     "id" serial PRIMARY KEY,
-    "role" text NOT NULL,
-    "description" text,
-    "created_at" timestamp with time zone DEFAULT now() NOT NULL
+    "role" text NOT NULL
 );
+
+CREATE UNIQUE INDEX roles_role_unique ON "roles" ("role");
+CREATE INDEX role_created_at_idx ON "roles" ("created_at");
 
 CREATE TABLE "user_role_memberships" (
     "id" serial PRIMARY KEY,
@@ -89,11 +93,14 @@ CREATE TABLE "user_role_memberships" (
     "role_id" integer NOT NULL,
     "granted_by" text,
     "granted_at" timestamp with time zone DEFAULT now() NOT NULL,
-    "expires_at" timestamp with time zone,
-    CONSTRAINT "user_role_memberships_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
-    CONSTRAINT "user_role_memberships_role_id_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "roles" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
-    CONSTRAINT "user_role_memberships_granted_by_users_id_fk" FOREIGN KEY ("granted_by") REFERENCES "users" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION
+    "expires_at" timestamp with time zone
 );
+
+CREATE UNIQUE INDEX user_role_membership_user_role_unique ON "user_role_memberships" ("user_id", "role_id");
+
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_role_id_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "roles" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_granted_by_users_id_fk" FOREIGN KEY ("granted_by") REFERENCES "users" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 CREATE TABLE "oidc_auth_flows" (
     "id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
@@ -106,6 +113,9 @@ CREATE TABLE "oidc_auth_flows" (
     "expires_at" timestamp with time zone NOT NULL
 );
 
+CREATE UNIQUE INDEX oidc_auth_flows_state_hash_unique ON "oidc_auth_flows" ("state_hash");
+CREATE INDEX oidc_auth_flows_expires_at_idx ON "oidc_auth_flows" ("expires_at");
+
 CREATE TABLE "collectors" (
     "id" serial PRIMARY KEY,
     "name" text NOT NULL,
@@ -117,8 +127,8 @@ CREATE TABLE "collectors" (
     "revoked_at" timestamp with time zone,
     "created_at" timestamp with time zone DEFAULT now() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT "collectors_name_unique" UNIQUE ("name"),
-    CONSTRAINT "collectors_token_hash_unique" UNIQUE ("token_hash")
+    CONSTRAINT collectors_name_unique UNIQUE ("name"),
+    CONSTRAINT collectors_token_hash_unique UNIQUE ("token_hash")
 );
 
 CREATE TABLE "reachability_jobs" (
@@ -140,12 +150,21 @@ CREATE TABLE "reachability_jobs" (
     "leased_at" timestamp with time zone,
     "completed_at" timestamp with time zone,
     "expires_at" timestamp with time zone NOT NULL,
-    CONSTRAINT "reachability_jobs_timeout_positive" CHECK ("timeout_ms" > 0),
-    CONSTRAINT "reachability_jobs_timeout_bounded" CHECK ("timeout_ms" <= 30000),
-    CONSTRAINT "reachability_jobs_attempt_count_nonnegative" CHECK ("attempt_count" >= 0),
-    CONSTRAINT "reachability_jobs_result_status_valid" CHECK ("result_status" IS NULL OR "result_status" IN ('online', 'offline', 'unknown')),
-    CONSTRAINT "reachability_jobs_lease_consistent" CHECK ("status" <> 'leased' OR ("collector_id" IS NOT NULL AND "lease_id" IS NOT NULL AND "lease_expires_at" IS NOT NULL))
+    CONSTRAINT reachability_jobs_timeout_positive CHECK ("timeout_ms" > 0),
+    CONSTRAINT reachability_jobs_timeout_bounded CHECK ("timeout_ms" <= 30000),
+    CONSTRAINT reachability_jobs_attempt_count_nonnegative CHECK ("attempt_count" >= 0),
+    CONSTRAINT reachability_jobs_result_status_valid CHECK ("result_status" IS NULL OR "result_status" IN ('online', 'offline', 'unknown')),
+    CONSTRAINT reachability_jobs_lease_consistent CHECK ("status" <> 'leased' OR ("collector_id" IS NOT NULL AND "lease_id" IS NOT NULL AND "lease_expires_at" IS NOT NULL))
 );
+
+ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_collector_id_collectors_id_fk" FOREIGN KEY ("collector_id") REFERENCES "collectors" ("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+
+CREATE INDEX reachability_jobs_device_queued_idx ON "reachability_jobs" ("device_id", "queued_at");
+CREATE INDEX reachability_jobs_status_queued_idx ON "reachability_jobs" ("status", "queued_at");
+CREATE INDEX reachability_jobs_collector_status_idx ON "reachability_jobs" ("collector_id", "status");
+CREATE INDEX reachability_jobs_lease_expires_idx ON "reachability_jobs" ("lease_expires_at");
+CREATE UNIQUE INDEX reachability_jobs_one_active_per_device_idx ON "reachability_jobs" ("device_id") WHERE "status" IN ('queued', 'leased');
 
 CREATE TABLE "monitoring_history" (
     "id" serial PRIMARY KEY,
@@ -158,6 +177,12 @@ CREATE TABLE "monitoring_history" (
     "source" text DEFAULT 'automated' NOT NULL,
     "idempotency_identifier" text
 );
+
+ALTER TABLE "monitoring_history" ADD CONSTRAINT "monitoring_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+
+CREATE UNIQUE INDEX monitoring_history_device_checked_idx_device_id_key ON "monitoring_history" ("device_id", "checked_at");
+CREATE INDEX monitoring_history_checked_idx ON "monitoring_history" ("checked_at");
+CREATE INDEX monitoring_history_idempotency_idx ON "monitoring_history" ("idempotency_identifier");
 
 CREATE TABLE "monitoring_incidents" (
     "id" serial PRIMARY KEY,
@@ -174,9 +199,15 @@ CREATE TABLE "monitoring_incidents" (
     "error_message" text,
     "resolution_reason" text,
     "idempotency_identifier" text,
-    CONSTRAINT "monitoring_incidents_peak_failures_nonnegative" CHECK ("peak_failures" >= 0),
-    CONSTRAINT "monitoring_incidents_duration_nonnegative" CHECK ("duration_seconds" IS NULL OR "duration_seconds" >= 0)
+    CONSTRAINT monitoring_incidents_peak_failures_nonnegative CHECK ("peak_failures" >= 0),
+    CONSTRAINT monitoring_incidents_duration_nonnegative CHECK ("duration_seconds" IS NULL OR "duration_seconds" >= 0)
 );
+
+ALTER TABLE "monitoring_incidents" ADD CONSTRAINT "monitoring_incidents_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+
+CREATE INDEX monitoring_incidents_device_started_idx ON "monitoring_incidents" ("device_id", "started_at");
+CREATE INDEX monitoring_incidents_status_started_idx ON "monitoring_incidents" ("status", "started_at");
+CREATE UNIQUE INDEX one_open_incident_per_device_idx ON "monitoring_incidents" ("device_id") WHERE "status" = 'open';
 
 CREATE TABLE "notification_deliveries" (
     "id" serial PRIMARY KEY,
@@ -193,6 +224,12 @@ CREATE TABLE "notification_deliveries" (
     "delivered_at" timestamp with time zone
 );
 
+ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "monitoring_incidents" ("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+
+CREATE INDEX notification_deliveries_incident_attempted_idx ON "notification_deliveries" ("incident_id", "attempted_at");
+CREATE INDEX notification_deliveries_status_attempted_idx ON "notification_deliveries" ("status", "attempted_at");
+CREATE INDEX notification_deliveries_status_next_attempt_idx ON "notification_deliveries" ("status", "next_attempt_at");
+
 CREATE TABLE "maintenance_history" (
     "id" serial PRIMARY KEY,
     "device_id" integer NOT NULL,
@@ -201,6 +238,11 @@ CREATE TABLE "maintenance_history" (
     "maintenance_starts_at" timestamp with time zone,
     "maintenance_ends_at" timestamp with time zone
 );
+
+ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+
+CREATE INDEX maintenance_history_device_occurred_idx ON "maintenance_history" ("device_id", "occurred_at");
+CREATE INDEX maintenance_history_occurred_idx ON "maintenance_history" ("occurred_at");
 
 CREATE TABLE "incident_activity" (
     "id" serial PRIMARY KEY,
@@ -211,38 +253,4 @@ CREATE TABLE "incident_activity" (
     "occurred_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- Foreign Keys
-ALTER TABLE "saved_configurations" ADD CONSTRAINT "saved_configurations_associated_device_id_devices_id_fk" FOREIGN KEY ("associated_device_id") REFERENCES "devices" ("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "monitoring_history" ADD CONSTRAINT "monitoring_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
-ALTER TABLE "monitoring_incidents" ADD CONSTRAINT "monitoring_incidents_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
-ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "monitoring_incidents" ("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "incident_activity" ADD CONSTRAINT "incident_activity_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "monitoring_incidents" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
-ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_collector_id_collectors_id_fk" FOREIGN KEY ("collector_id") REFERENCES "collectors" ("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "devices" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
-
--- Indexes
-CREATE UNIQUE INDEX "roles_role_unique" ON "roles" ("role");
-CREATE UNIQUE INDEX "user_role_membership_user_role_unique" ON "user_role_memberships" ("user_id", "role_id");
-CREATE INDEX "monitoring_history_device_checked_idx" ON "monitoring_history" ("device_id", "checked_at");
-CREATE INDEX "monitoring_history_checked_idx" ON "monitoring_history" ("checked_at");
-CREATE INDEX "monitoring_history_idempotency_idx" ON "monitoring_history" ("idempotency_identifier");
-CREATE INDEX "monitoring_incidents_device_started_idx" ON "monitoring_incidents" ("device_id", "started_at");
-CREATE INDEX "monitoring_incidents_status_started_idx" ON "monitoring_incidents" ("status", "started_at");
-CREATE UNIQUE INDEX "one_open_incident_per_device_idx" ON "monitoring_incidents" ("device_id") WHERE "status" = 'open';
-CREATE INDEX "notification_deliveries_incident_attempted_idx" ON "notification_deliveries" ("incident_id", "attempted_at");
-CREATE INDEX "notification_deliveries_status_attempted_idx" ON "notification_deliveries" ("status", "attempted_at");
-CREATE INDEX "notification_deliveries_status_next_attempt_idx" ON "notification_deliveries" ("status", "next_attempt_at");
-CREATE INDEX "maintenance_history_device_occurred_idx" ON "maintenance_history" ("device_id", "occurred_at");
-CREATE INDEX "maintenance_history_occurred_idx" ON "maintenance_history" ("occurred_at");
-CREATE INDEX "incident_activity_incident_occurred_idx" ON "incident_activity" ("incident_id", "occurred_at");
-CREATE INDEX "collectors_status_last_seen_idx" ON "collectors" ("status", "last_seen_at");
-CREATE INDEX "reachability_jobs_status_queued_idx" ON "reachability_jobs" ("status", "queued_at");
-CREATE INDEX "reachability_jobs_lease_expires_idx" ON "reachability_jobs" ("lease_expires_at");
-CREATE INDEX "reachability_jobs_collector_status_idx" ON "reachability_jobs" ("collector_id", "status");
-CREATE INDEX "reachability_jobs_device_queued_idx" ON "reachability_jobs" ("device_id", "queued_at");
-CREATE UNIQUE INDEX "reachability_jobs_one_active_per_device_idx" ON "reachability_jobs" ("device_id") WHERE "status" IN ('queued', 'leased');
-CREATE INDEX "auth_sessions_expiry_idx" ON "auth_sessions" ("idle_expires_at", "absolute_expires_at");
-CREATE INDEX "auth_sessions_user_id_idx" ON "auth_sessions" ("user_id");
-CREATE INDEX "oidc_auth_flows_expires_at_idx" ON "oidc_auth_flows" ("expires_at");
-CREATE UNIQUE INDEX "auth_sessions_token_hash_unique" ON "auth_sessions" ("token_hash");
