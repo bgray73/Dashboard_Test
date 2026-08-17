@@ -1,317 +1,255 @@
--- Phase 23: Baseline migration representing current database schema
--- This migration captures the schema state established through Phases 1-20
--- It is the foundation for proper versioned migrations going forward
---
--- NOTE: This baseline assumes the schema was previously created via `drizzle-kit push`
--- For existing production databases, this migration should be marked as applied
--- without re-running it (set the hash in drizzle_migrations table)
-
--- ============================================
--- Phase 1: Required extensions
--- ============================================
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- ============================================
--- Phase 17: Core monitoring tables
--- ============================================
-
--- Users table (OIDC identity)
-CREATE TABLE users (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  identity_issuer TEXT NOT NULL,
-  identity_subject TEXT NOT NULL,
-  email TEXT,
-  display_name TEXT,
-  email_verified BOOLEAN,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_login_at TIMESTAMPTZ
+CREATE TYPE "public"."collector_status" AS ENUM('active', 'revoked');
+CREATE TYPE "public"."reachability_job_status" AS ENUM('queued', 'leased', 'completed', 'expired');
+CREATE TYPE "public"."user_roles" AS ENUM('admin', 'operator', 'viewer');
+CREATE TABLE "devices" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"hostname" text NOT NULL,
+	"management_ip" text NOT NULL,
+	"device_type" text NOT NULL,
+	"vendor" text NOT NULL,
+	"model" text DEFAULT '' NOT NULL,
+	"operating_system" text DEFAULT '' NOT NULL,
+	"location" text DEFAULT '' NOT NULL,
+	"serial_number" text DEFAULT '' NOT NULL,
+	"notes" text DEFAULT '' NOT NULL,
+	"monitoring_enabled" boolean DEFAULT false NOT NULL,
+	"maintenance_mode" boolean DEFAULT false NOT NULL,
+	"maintenance_starts_at" timestamp with time zone,
+	"maintenance_ends_at" timestamp with time zone,
+	"monitoring_interval_seconds" integer DEFAULT 60 NOT NULL,
+	"last_status" text DEFAULT 'unknown' NOT NULL,
+	"last_checked_at" timestamp with time zone,
+	"last_latency_ms" integer,
+	"consecutive_failures" integer DEFAULT 0 NOT NULL,
+	"is_sample" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- Devices inventory
-CREATE TABLE devices (
-  id SERIAL PRIMARY KEY,
-  hostname TEXT NOT NULL,
-  management_ip TEXT NOT NULL,
-  device_type TEXT NOT NULL,
-  vendor TEXT NOT NULL,
-  model TEXT NOT NULL DEFAULT '',
-  operating_system TEXT NOT NULL DEFAULT '',
-  location TEXT NOT NULL DEFAULT '',
-  serial_number TEXT NOT NULL DEFAULT '',
-  notes TEXT NOT NULL DEFAULT '',
-  monitoring_enabled BOOLEAN NOT NULL DEFAULT false,
-  maintenance_mode BOOLEAN NOT NULL DEFAULT false,
-  monitoring_starts_at TIMESTAMPTZ,
-  monitoring_ends_at TIMESTAMPTZ,
-  monitoring_interval_seconds INTEGER NOT NULL DEFAULT 60,
-  last_status TEXT NOT NULL DEFAULT 'unknown',
-  last_checked_at TIMESTAMPTZ,
-  last_latency_ms INTEGER,
-  consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  is_sample BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "saved_configurations" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"vendor" text NOT NULL,
+	"configuration_type" text NOT NULL,
+	"associated_device_id" integer,
+	"generated_configuration" text NOT NULL,
+	"notes" text DEFAULT '' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- Monitoring history
-CREATE TABLE monitoring_history (
-  id SERIAL PRIMARY KEY,
-  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  status TEXT NOT NULL,
-  latency_ms INTEGER,
-  error_message TEXT,
-  consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  source TEXT NOT NULL DEFAULT 'automated',
-  idempotency_identifier TEXT
+CREATE TABLE "application_settings" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"application_name" text DEFAULT 'LabOps' NOT NULL,
+	"default_theme" text DEFAULT 'dark' NOT NULL,
+	"default_config_vendor" text DEFAULT 'Cisco IOS / IOS-XE' NOT NULL,
+	"ping_timeout_seconds" integer DEFAULT 3 NOT NULL,
+	"monitoring_retention_days" integer DEFAULT 30 NOT NULL,
+	"webhook_enabled" boolean DEFAULT false NOT NULL,
+	"webhook_url" text DEFAULT '' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- Monitoring incidents
-CREATE TABLE monitoring_incidents (
-  id SERIAL PRIMARY KEY,
-  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  started_at TIMESTAMPTZ NOT NULL,
-  last_failure_at TIMESTAMPTZ NOT NULL,
-  resolved_at TIMESTAMPTZ,
-  status TEXT NOT NULL DEFAULT 'open',
-  acknowledged_at TIMESTAMPTZ,
-  acknowledged_by TEXT,
-  operator_note TEXT,
-  peak_failures INTEGER NOT NULL DEFAULT 0,
-  duration_seconds INTEGER,
-  error_message TEXT,
-  resolution_reason TEXT,
-  idempotency_identifier TEXT
+CREATE TABLE "monitoring_history" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"device_id" integer NOT NULL,
+	"checked_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"status" text NOT NULL,
+	"latency_ms" integer,
+	"error_message" text,
+	"consecutive_failures" integer DEFAULT 0 NOT NULL,
+	"source" text DEFAULT 'automated' NOT NULL,
+	"idempotency_identifier" text
 );
 
--- Incident activity trail
-CREATE TABLE incident_activity (
-  id SERIAL PRIMARY KEY,
-  incident_id INTEGER NOT NULL REFERENCES monitoring_incidents(id) ON DELETE CASCADE,
-  acknowledged_by TEXT,
-  operator_note TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "monitoring_incidents" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"device_id" integer NOT NULL,
+	"started_at" timestamp with time zone NOT NULL,
+	"last_failure_at" timestamp with time zone NOT NULL,
+	"resolved_at" timestamp with time zone,
+	"status" text DEFAULT 'open' NOT NULL,
+	"acknowledged_at" timestamp with time zone,
+	"acknowledged_by" text,
+	"operator_note" text,
+	"peak_failures" integer DEFAULT 0 NOT NULL,
+	"duration_seconds" integer,
+	"error_message" text,
+	"resolution_reason" text,
+	"idempotency_identifier" text,
+	CONSTRAINT "monitoring_incidents_peak_failures_nonnegative" CHECK ("monitoring_incidents"."peak_failures" >= 0),
+	CONSTRAINT "monitoring_incidents_duration_nonnegative" CHECK ("monitoring_incidents"."duration_seconds" is null or "monitoring_incidents"."duration_seconds" >= 0)
 );
 
--- Reachability jobs (ICMP checks)
-CREATE TYPE reachability_job_status AS ENUM ('queued', 'leased', 'completed', 'expired');
-
-CREATE TABLE reachability_jobs (
-  id SERIAL PRIMARY KEY,
-  collector_id INTEGER REFERENCES collectors(id) ON DELETE SET NULL,
-  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  target TEXT NOT NULL,
-  status reachability_job_status NOT NULL DEFAULT 'queued',
-  timeout_ms INTEGER NOT NULL DEFAULT 5000,
-  attempt_count INTEGER NOT NULL DEFAULT 0,
-  lease_id TEXT,
-  lease_expires_at TIMESTAMPTZ,
-  result_status TEXT,
-  latency_ms INTEGER,
-  error_code TEXT,
-  error_message TEXT,
-  result_digest TEXT,
-  queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  leased_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  expires_at TIMESTAMPTZ NOT NULL
+CREATE TABLE "notification_deliveries" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"incident_id" integer,
+	"event_type" text NOT NULL,
+	"destination" text NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"response_status" integer,
+	"error_message" text,
+	"payload" jsonb NOT NULL,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"next_attempt_at" timestamp with time zone,
+	"attempted_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"delivered_at" timestamp with time zone
 );
 
--- ============================================
--- Phase 18: Collector infrastructure
--- ============================================
-
--- Collectors
-CREATE TYPE collector_status AS ENUM ('active', 'revoked');
-
-CREATE TABLE collectors (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  hostname TEXT,
-  token_hash TEXT NOT NULL UNIQUE,
-  status collector_status NOT NULL DEFAULT 'active',
-  capabilities TEXT[] NOT NULL DEFAULT ARRAY['icmp'],
-  last_seen_at TIMESTAMPTZ,
-  revoked_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "maintenance_history" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"device_id" integer NOT NULL,
+	"event_type" text NOT NULL,
+	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"maintenance_starts_at" timestamp with time zone,
+	"maintenance_ends_at" timestamp with time zone
 );
 
--- ============================================
--- Phase 19: Authorization RBAC
--- ============================================
-
--- Roles enum and tables
-CREATE TYPE user_roles AS ENUM ('admin', 'operator', 'viewer');
-
-CREATE TABLE roles (
-  id SERIAL PRIMARY KEY,
-  role user_roles NOT NULL UNIQUE,
-  description TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "incident_activity" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"incident_id" integer NOT NULL,
+	"event_type" text NOT NULL,
+	"actor" text,
+	"note" text,
+	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
-CREATE TABLE user_role_memberships (
-  id SERIAL PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  granted_by TEXT REFERENCES users(id),
-  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ,
-  UNIQUE (user_id, role_id)
+CREATE TABLE "collectors" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"hostname" text,
+	"token_hash" text NOT NULL,
+	"status" "collector_status" DEFAULT 'active' NOT NULL,
+	"capabilities" jsonb DEFAULT '["icmp"]'::jsonb NOT NULL,
+	"last_seen_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "collectors_name_unique" UNIQUE("name"),
+	CONSTRAINT "collectors_token_hash_unique" UNIQUE("token_hash")
 );
 
--- Auth sessions
-CREATE TABLE auth_sessions (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,
-  idle_expires_at TIMESTAMPTZ NOT NULL,
-  absolute_expires_at TIMESTAMPTZ NOT NULL,
-  revoked_at TIMESTAMPTZ,
-  last_seen_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_agent TEXT,
-  ip_address TEXT,
-  CONSTRAINT auth_sessions_idle_before_absolute_check CHECK (idle_expires_at <= absolute_expires_at)
+CREATE TABLE "reachability_jobs" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"collector_id" integer,
+	"device_id" integer NOT NULL,
+	"target" text NOT NULL,
+	"status" "reachability_job_status" DEFAULT 'queued' NOT NULL,
+	"timeout_ms" integer DEFAULT 5000 NOT NULL,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"lease_id" text,
+	"lease_expires_at" timestamp with time zone,
+	"result_status" text,
+	"latency_ms" integer,
+	"error_code" text,
+	"error_message" text,
+	"result_digest" text,
+	"queued_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"leased_at" timestamp with time zone,
+	"completed_at" timestamp with time zone,
+	"expires_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "reachability_jobs_timeout_positive" CHECK ("reachability_jobs"."timeout_ms" > 0),
+	CONSTRAINT "reachability_jobs_timeout_bounded" CHECK ("reachability_jobs"."timeout_ms" <= 30000),
+	CONSTRAINT "reachability_jobs_attempt_count_nonnegative" CHECK ("reachability_jobs"."attempt_count" >= 0),
+	CONSTRAINT "reachability_jobs_latency_nonnegative" CHECK ("reachability_jobs"."latency_ms" is null or "reachability_jobs"."latency_ms" >= 0),
+	CONSTRAINT "reachability_jobs_latency_bounded" CHECK ("reachability_jobs"."latency_ms" is null or "reachability_jobs"."latency_ms" <= 3600000),
+	CONSTRAINT "reachability_jobs_result_status_valid" CHECK ("reachability_jobs"."result_status" is null or "reachability_jobs"."result_status" in ('online', 'offline', 'unknown')),
+	CONSTRAINT "reachability_jobs_error_code_bounded" CHECK ("reachability_jobs"."error_code" is null or length("reachability_jobs"."error_code") <= 64),
+	CONSTRAINT "reachability_jobs_error_message_bounded" CHECK ("reachability_jobs"."error_message" is null or length("reachability_jobs"."error_message") <= 512),
+	CONSTRAINT "reachability_jobs_lease_consistent" CHECK ("reachability_jobs"."status" <> 'leased' or ("reachability_jobs"."collector_id" is not null and "reachability_jobs"."lease_id" is not null and "reachability_jobs"."lease_expires_at" is not null))
 );
 
--- OIDC auth flows (PKCE state)
-CREATE TABLE oidc_auth_flows (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  state_hash TEXT NOT NULL UNIQUE,
-  state TEXT NOT NULL,
-  nonce TEXT NOT NULL,
-  pkce_verifier TEXT NOT NULL,
-  issuer TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  CONSTRAINT oidc_auth_flows_expiry_check CHECK (expires_at > created_at)
+CREATE TABLE "users" (
+	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+	"identity_issuer" text NOT NULL,
+	"identity_subject" text NOT NULL,
+	"email" text,
+	"display_name" text,
+	"email_verified" boolean,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_login_at" timestamp with time zone,
+	CONSTRAINT "users_identity_issuer_subject_unique" UNIQUE("identity_issuer","identity_subject")
 );
 
--- ============================================
--- Phase 20: SNMP configuration support
--- ============================================
-
--- Saved configurations
-CREATE TABLE saved_configurations (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  configuration_type TEXT NOT NULL,
-  content TEXT NOT NULL,
-  generated_configuration TEXT NOT NULL,
-  vendor TEXT NOT NULL,
-  notes TEXT NOT NULL DEFAULT '',
-  associated_device_id INTEGER REFERENCES devices(id),
-  auth_password_digest TEXT,
-  privacy_password_digest TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "auth_sessions" (
+	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+	"user_id" text NOT NULL,
+	"token_hash" text NOT NULL,
+	"idle_expires_at" timestamp with time zone NOT NULL,
+	"absolute_expires_at" timestamp with time zone NOT NULL,
+	"revoked_at" timestamp with time zone,
+	"last_seen_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"user_agent" text,
+	"ip_address" text,
+	CONSTRAINT "auth_sessions_token_hash_unique" UNIQUE("token_hash"),
+	CONSTRAINT "auth_sessions_idle_before_absolute_check" CHECK ("auth_sessions"."idle_expires_at" <= "auth_sessions"."absolute_expires_at")
 );
 
--- Notification deliveries (webhook history)
-CREATE TYPE notification_type AS ENUM ('incident_open', 'incident_recovery');
-
-CREATE TABLE notification_deliveries (
-  id SERIAL PRIMARY KEY,
-  notification_type notification_type NOT NULL,
-  incident_id INTEGER REFERENCES monitoring_incidents(id) ON DELETE CASCADE,
-  destination_url TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  attempted_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  error_message TEXT,
-  retry_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "oidc_auth_flows" (
+	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
+	"state_hash" text NOT NULL,
+	"state" text NOT NULL,
+	"nonce" text NOT NULL,
+	"pkce_verifier" text NOT NULL,
+	"issuer" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "oidc_auth_flows_state_hash_unique" UNIQUE("state_hash"),
+	CONSTRAINT "oidc_auth_flows_expiry_check" CHECK ("oidc_auth_flows"."expires_at" > "oidc_auth_flows"."created_at")
 );
 
--- Maintenance history
-CREATE TABLE maintenance_history (
-  id SERIAL PRIMARY KEY,
-  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  started_at TIMESTAMPTZ NOT NULL,
-  ended_at TIMESTAMPTZ NOT NULL,
-  reason TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "roles" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"role" "user_roles" NOT NULL,
+	"description" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- ============================================
--- Phase 21: Monitoring concurrency 
--- ============================================
-
-ALTER TABLE monitoring_history 
-  ADD COLUMN IF NOT EXISTS idempotency_identifier TEXT;
-
-ALTER TABLE monitoring_incidents
-  ADD COLUMN IF NOT EXISTS idempotency_identifier TEXT;
-
--- ============================================
--- Phase 23: Migrations and Backups infrastructure
--- ============================================
-
--- Migration tracking table
-CREATE TABLE IF NOT EXISTS drizzle_migrations (
-  id SERIAL PRIMARY KEY,
-  hash TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE "user_role_memberships" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"user_id" text NOT NULL,
+	"role_id" integer NOT NULL,
+	"granted_by" text,
+	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone
 );
 
--- ============================================
--- Indexes
--- ============================================
-
--- Users
-CREATE UNIQUE INDEX IF NOT EXISTS users_identity_issuer_subject_unique 
-  ON users(identity_issuer, identity_subject);
-
--- Devices
-CREATE INDEX IF NOT EXISTS devices_hostname_idx ON devices(hostname);
-CREATE INDEX IF NOT EXISTS devices_management_ip_idx ON devices(management_ip);
-CREATE INDEX IF NOT EXISTS devices_location_idx ON devices(location);
-
--- Monitoring history
-CREATE INDEX IF NOT EXISTS monitoring_history_device_checked_idx ON monitoring_history(device_id, checked_at);
-CREATE INDEX IF NOT EXISTS monitoring_history_checked_idx ON monitoring_history(checked_at);
-
--- Monitoring incidents
-CREATE INDEX IF NOT EXISTS monitoring_incidents_device_started_idx ON monitoring_incidents(device_id, started_at);
-CREATE INDEX IF NOT EXISTS monitoring_incidents_status_started_idx ON monitoring_incidents(status, started_at);
-CREATE UNIQUE INDEX IF NOT EXISTS one_open_incident_per_device_idx
-  ON monitoring_incidents(device_id)
-  WHERE status = 'open';
-
--- Reachability jobs
-CREATE INDEX IF NOT EXISTS reachability_jobs_status_queued_idx ON reachability_jobs(status, queued_at);
-CREATE INDEX IF NOT EXISTS reachability_jobs_lease_expires_idx ON reachability_jobs(lease_expires_at);
-CREATE INDEX IF NOT EXISTS reachability_jobs_collector_status_idx ON reachability_jobs(collector_id, status);
-CREATE INDEX IF NOT EXISTS reachability_jobs_device_queued_idx ON reachability_jobs(device_id, queued_at);
-
--- Collectors
-CREATE INDEX IF NOT EXISTS collectors_status_last_seen_idx ON collectors(status, last_seen_at);
-
--- User role memberships
-CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_memberships(expires_at);
-
--- Auth sessions
-CREATE UNIQUE INDEX IF NOT EXISTS auth_sessions_token_hash_unique ON auth_sessions(token_hash);
-CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions(idle_expires_at, absolute_expires_at);
-CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
-CREATE INDEX IF NOT EXISTS auth_sessions_last_seen_idx ON auth_sessions(last_seen_at);
-
--- OIDC auth flows
-CREATE INDEX IF NOT EXISTS oidc_auth_flows_expires_at_idx ON oidc_auth_flows(expires_at);
-
--- ================================
--- Check constraints
--- ================================
-
-ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_peak_failures_nonnegative 
-  CHECK (peak_failures >= 0);
-
-ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_duration_nonnegative 
-  CHECK (duration_seconds IS NULL OR duration_seconds >= 0);
+ALTER TABLE "monitoring_history" ADD CONSTRAINT "monitoring_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "monitoring_incidents" ADD CONSTRAINT "monitoring_incidents_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "public"."monitoring_incidents"("id") ON DELETE set null ON UPDATE no action;
+ALTER TABLE "maintenance_history" ADD CONSTRAINT "maintenance_history_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "incident_activity" ADD CONSTRAINT "incident_activity_incident_id_monitoring_incidents_id_fk" FOREIGN KEY ("incident_id") REFERENCES "public"."monitoring_incidents"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_collector_id_collectors_id_fk" FOREIGN KEY ("collector_id") REFERENCES "public"."collectors"("id") ON DELETE set null ON UPDATE no action;
+ALTER TABLE "reachability_jobs" ADD CONSTRAINT "reachability_jobs_device_id_devices_id_fk" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "auth_sessions" ADD CONSTRAINT "auth_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_role_id_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."roles"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "user_role_memberships" ADD CONSTRAINT "user_role_memberships_granted_by_users_id_fk" FOREIGN KEY ("granted_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+CREATE INDEX "monitoring_history_device_checked_idx" ON "monitoring_history" USING btree ("device_id","checked_at");
+CREATE INDEX "monitoring_history_checked_idx" ON "monitoring_history" USING btree ("checked_at");
+CREATE INDEX "monitoring_history_idempotency_idx" ON "monitoring_history" USING btree ("idempotency_identifier");
+CREATE INDEX "monitoring_incidents_device_started_idx" ON "monitoring_incidents" USING btree ("device_id","started_at");
+CREATE INDEX "monitoring_incidents_status_started_idx" ON "monitoring_incidents" USING btree ("status","started_at");
+CREATE UNIQUE INDEX "one_open_incident_per_device_idx" ON "monitoring_incidents" USING btree ("device_id") WHERE "monitoring_incidents"."status" = 'open';
+CREATE INDEX "notification_deliveries_incident_attempted_idx" ON "notification_deliveries" USING btree ("incident_id","attempted_at");
+CREATE INDEX "notification_deliveries_status_attempted_idx" ON "notification_deliveries" USING btree ("status","attempted_at");
+CREATE INDEX "notification_deliveries_status_next_attempt_idx" ON "notification_deliveries" USING btree ("status","next_attempt_at");
+CREATE INDEX "maintenance_history_device_occurred_idx" ON "maintenance_history" USING btree ("device_id","occurred_at");
+CREATE INDEX "maintenance_history_occurred_idx" ON "maintenance_history" USING btree ("occurred_at");
+CREATE INDEX "incident_activity_incident_occurred_idx" ON "incident_activity" USING btree ("incident_id","occurred_at");
+CREATE INDEX "collectors_status_last_seen_idx" ON "collectors" USING btree ("status","last_seen_at");
+CREATE INDEX "reachability_jobs_status_queued_idx" ON "reachability_jobs" USING btree ("status","queued_at");
+CREATE INDEX "reachability_jobs_lease_expires_idx" ON "reachability_jobs" USING btree ("lease_expires_at");
+CREATE INDEX "reachability_jobs_collector_status_idx" ON "reachability_jobs" USING btree ("collector_id","status");
+CREATE INDEX "reachability_jobs_device_queued_idx" ON "reachability_jobs" USING btree ("device_id","queued_at");
+CREATE UNIQUE INDEX "reachability_jobs_one_active_per_device_idx" ON "reachability_jobs" USING btree ("device_id") WHERE "reachability_jobs"."status" in ('queued', 'leased');
+CREATE INDEX "auth_sessions_expiry_idx" ON "auth_sessions" USING btree ("idle_expires_at","absolute_expires_at");
+CREATE INDEX "auth_sessions_user_id_idx" ON "auth_sessions" USING btree ("user_id");
+CREATE INDEX "auth_sessions_last_seen_idx" ON "auth_sessions" USING btree ("last_seen_at");
+CREATE INDEX "oidc_auth_flows_expires_at_idx" ON "oidc_auth_flows" USING btree ("expires_at");
+CREATE UNIQUE INDEX "roles_role_unique" ON "roles" USING btree ("role");
+CREATE UNIQUE INDEX "user_role_membership_user_role_unique" ON "user_role_memberships" USING btree ("user_id","role_id");
+-- Add missing notification_type enum
+CREATE TYPE "notification_type" AS ENUM('incident_open', 'incident_recovery');
