@@ -1,1 +1,9 @@
-{"version": "1.0", "migrations": []}
+{
+  "migrations": [
+    {
+      "sqlPath": "20260816000000_baseline.sql",
+      "jsPath": "20260816000000.baseline.js",
+      "checksum": "baseline"
+    }
+  ]
+}
