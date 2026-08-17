@@ -282,8 +282,8 @@ CREATE INDEX IF NOT EXISTS user_role_memberships_expires_at_idx ON user_role_mem
 -- Check constraints
 -- ================================
 
-ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_peek_failures_nonnegative 
+ALTER TABLE monitoring_incidents ADD CONSTRAINT monitoring_incidents_peek_failures_nonnegative 
   CHECK (peak_failures >= 0);
 
-ALTER TABLE monitoring_incidents ADD CONSTRAINT IF NOT EXISTS monitoring_incidents_duration_nonnegative 
+ALTER TABLE monitoring_incidents ADD CONSTRAINT monitoring_incidents_duration_nonnegative 
   CHECK (duration_seconds IS NULL OR duration_seconds >= 0);
