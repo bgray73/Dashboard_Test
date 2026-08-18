@@ -14,7 +14,7 @@ import { logger } from "../lib/logger";
 
 export type SessionResult = {
   sessionId: number;
-  user: { id: number; displayName: string | null; email: string | null };
+  user: { id: string; displayName: string | null; email: string | null };
 };
 export type AuthRouteDependencies = {
   oidc: {
@@ -26,9 +26,9 @@ export type AuthRouteDependencies = {
     mapIdentity(
       identity: ValidatedIdentity,
       bootstrap: BootstrapIdentity,
-    ): Promise<{ id: number }>;
+    ): Promise<{ id: string }>;
     issueSession(
-      userId: number,
+      userId: string,
       priorToken?: string,
     ): Promise<{ token: string; absoluteExpiresAt: Date }>;
     revokeSession(token: string): Promise<void>;

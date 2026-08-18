@@ -60,12 +60,12 @@ function fakes(): AuthDependencies & {
         return token === "valid-token"
           ? {
               sessionId: 1,
-              user: { id: 7, displayName: "Approved", email: null },
+              user: { id: "7", displayName: "Approved", email: null },
             }
           : undefined;
       },
-      mapIdentity: async () => ({ id: 7 }),
-      issueSession: async (_userId: number, prior?: string) => {
+      mapIdentity: async () => ({ id: "7" }),
+      issueSession: async (_userId: string, prior?: string) => {
         issuedPrior.push(prior);
         return {
           token: "new-session-token-0000000000000000000000000",
@@ -417,7 +417,7 @@ describe("authentication routes and default guard", () => {
     );
     assert.equal(me.response.status, 200);
     assert.deepEqual(await me.response.json(), {
-      id: 7,
+      id: "7",
       displayName: "Approved",
       email: null,
     });

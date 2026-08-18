@@ -46,13 +46,13 @@ export class AuthStore {
     private readonly ttl: { idleTtlSeconds: number; absoluteTtlSeconds: number },
   ) {}
 
-  async mapIdentity(identity: ValidatedIdentity, bootstrap: BootstrapIdentity): Promise<{ id: number }> {
+  async mapIdentity(identity: ValidatedIdentity, bootstrap: BootstrapIdentity): Promise<{ id: string }> {
     validateIdentity(identity);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock($1)", [AUTH_BOOTSTRAP_LOCK_KEY]);
-      const existing = await client.query<{ id: number }>(
+      const existing = await client.query<{ id: string }>(
         `SELECT id FROM users WHERE identity_issuer=$1 AND identity_subject=$2`,
         [identity.issuer, identity.subject],
       );
@@ -68,7 +68,7 @@ export class AuthStore {
       if (count.rows[0].count !== 0 || bootstrap.issuer !== identity.issuer || bootstrap.subject !== identity.subject) {
         throw new IdentityNotProvisionedError();
       }
-      const inserted = await client.query<{ id: number }>(
+      const inserted = await client.query<{ id: string }>(
         `INSERT INTO users (identity_issuer, identity_subject, email, display_name, email_verified, last_login_at)
          VALUES ($1,$2,$3,$4,$5,now()) RETURNING id`,
         [identity.issuer, identity.subject, identity.email ?? null, identity.displayName ?? null, identity.emailVerified ?? null],
@@ -81,7 +81,7 @@ export class AuthStore {
     } finally { client.release(); }
   }
 
-  async issueSession(userId: number, priorToken?: string): Promise<{ token: string; absoluteExpiresAt: Date }> {
+  async issueSession(userId: string, priorToken?: string): Promise<{ token: string; absoluteExpiresAt: Date }> {
     const token = generateSessionToken();
     const tokenHash = hashOpaqueToken(token);
     const client = await this.pool.connect();
@@ -98,9 +98,9 @@ export class AuthStore {
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
-  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: number; displayName: string | null; email: string | null } } | undefined> {
+  async lookupSession(token: string): Promise<{ sessionId: number; user: { id: string; displayName: string | null; email: string | null } } | undefined> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
-    const result = await this.pool.query<{ session_id: number; id: number; display_name: string | null; email: string | null }>(
+    const result = await this.pool.query<{ session_id: number; id: string; display_name: string | null; email: string | null }>(
       `SELECT s.id AS session_id,u.id,u.display_name,u.email FROM auth_sessions s JOIN users u ON u.id=s.user_id
        WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.idle_expires_at>now() AND s.absolute_expires_at>now() LIMIT 1`,
       [hashOpaqueToken(token)],
