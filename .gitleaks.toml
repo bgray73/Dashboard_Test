@@ -1,0 +1,15 @@
+title = "gitleaks Config"
+version = "2"
+build_category = "standard"
+
+[allowlist]
+  paths = [
+    "test/",
+    "_test\\..*$",
+    ".*\\.md$",
+    "examples/",
+  ]
+  regexes = [
+    "(test-only-placeholder|placeholder|example\\.com|localhost)",
+    "(127\\.0\\.0\\.1|0\\.0\\.0\\.0)",
+  ]

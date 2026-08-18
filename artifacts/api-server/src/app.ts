@@ -17,6 +17,8 @@ import { logger } from "./lib/logger";
 import { AuthStore } from "./lib/auth-store";
 import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
 import { createAuthorizationMiddleware } from "./lib/authorization";
+import { createReadinessRouter } from "./routes/readiness";
+import { renderMetrics } from "./lib/metrics";
 import type { RuntimeConfig } from "./lib/runtime-config";
 
 export type AuthDependencies = AuthRouteDependencies;
@@ -85,6 +87,11 @@ export function createApp(
   app.use(cookieParser());
 
   app.use("/api", healthRouter);
+  app.use("/api", createReadinessRouter(config, appLogger));
+  app.use("/api/metrics", (_req, res) => {
+    res.type("text/plain; version=0.0.4; charset=utf-8");
+    res.send(renderMetrics());
+  });
   app.use("/api/auth", createAuthRouter(config.auth, auth));
   app.use("/api", createMainAuthGuard(config.auth, auth));
   

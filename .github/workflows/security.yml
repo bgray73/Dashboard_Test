@@ -1,0 +1,85 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: ["0 6 * * 1"] # Weekly Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71110274da32b65f52d9bf5c149fd131c8c9 # v4.2.2
+      - uses: pnpm/action-setup@8657f0005ce1fd292993509b79da4a8af9da6319 # v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@f07b6b5f37bb44db01d6c8a77285f4f5aee0263d # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run dependency audit
+        run: pnpm audit --prod --audit-level=high
+        env:
+          CI: true
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71110274da32b65f52d9bf5c149fd131c8c9 # v4.2.2
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@108f3ec6e4b1e6b67a7a3c0b9e9c330e1f8de606 # v2.3.0
+        with:
+          config-path: .gitleaks.toml
+          fail: true
+          verbose: true
+
+  trivy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    steps:
+      - uses: actions/checkout@11bd71110274da32b65f52d9bf5c149fd131c8c9 # v4.2.2
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@45dd14b4597377207c5d993e429db81b8e4f2c79 # v0.30.0
+        with:
+          scan-type: fs
+          ignore-unpatched: true
+          output: trivy-results.sarif
+          format: sarif
+      - name: Upload Trivy scan results
+        uses: github/codeql-action@5abbd1a2bbd07d6388b8b55a4cf93450e3a52822 # v3.29.3
+        if: always()
+        with:
+          upload-sarif: true
+          sarif_file: trivy-results.sarif
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71110274da32b65f52d9bf5c149fd131c8c9 # v4.2.2
+      - name: Initialize CodeQL
+        uses: github/codeql-action@5abbd1a2bbd07d6388b8b55a4cf93450e3a52822 # v3.29.3
+        with:
+          languages: javascript
+      - name: Build CodeQL database
+        uses: github/codeql-action@5abbd1a2bbd07d6388b8b55a4cf93450e3a52822 # v3.29.3
+        with:
+          category: "languages"
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action@5abbd1a2bbd07d6388b8b55a4cf93450e3a52822 # v3.29.3
+        with:
+          category: "languages"

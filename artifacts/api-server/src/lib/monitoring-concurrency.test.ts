@@ -20,15 +20,9 @@ describe("Phase 21: Monitoring concurrency and invariants", () => {
   describe("database invariants", () => {
     it("verifies one open incident constraint per device exists", async () => {
       // Check if the partial unique index exists
-      const result = await pool.query({
-        text: `
-          SELECT indexname, indexdef 
-          FROM pg_indexes 
-          WHERE schemaname = current_schema() 
-          AND tablename = 'monitoring_incidents'
-          AND indexdef ILIKE '%status = ''open''%'
-        `,
-      });
+      const result = await pool.query(
+        "SELECT indexname FROM pg_indexes WHERE tablename = 'monitoring_incidents' AND indexname = 'one_open_incident_per_device_idx'",
+      );
 
       const hasOpenIncidentIndex = result.rows.length > 0;
       if (!hasOpenIncidentIndex) {

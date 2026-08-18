@@ -108,7 +108,7 @@ export class AuthStore {
     const row = result.rows[0];
     if (!row) return undefined;
     await this.pool.query(
-      `UPDATE auth_sessions SET last_seen_at=now(), idle_expires_at=LEAST(now()+($2*interval '1 second'),absolute_expires_at)
+      `UPDATE auth_sessions SET last_seen_at=now(), idle_expires_at=LEAST(now()+($2*interval '1 second'),absolute_expires_at-interval '1 second')
        WHERE id=$1 AND last_seen_at<=now()-interval '5 minutes'`,
       [row.session_id, this.ttl.idleTtlSeconds],
     );
