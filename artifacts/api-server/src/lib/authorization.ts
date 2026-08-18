@@ -8,20 +8,28 @@
  * - ADMINISTRATOR: Operator plus inventory/configuration mutations, settings, retention, notifications, roles, and collector lifecycle
  */
 
+import { eq, and, sql } from "drizzle-orm";
+import { db, userRoleMembershipsTable, rolesTable } from "@workspace/db";
 import type { RequestHandler } from "express";
 import type { Logger } from "pino";
 
 export type Role = "viewer" | "operator" | "administrator";
 
+/** Map the raw DB enum value to the Role type used by the authorization layer. */
+function mapDbRoleToEnum(dbRole: string): Role {
+  if (dbRole === "admin") return "administrator";
+  if (dbRole === "operator") return "operator";
+  return "viewer";
+}
+
 export interface AuthSessionUser {
-  id: number;
+  id: string;
   displayName: string | null;
   email: string | null;
-  role: Role;
 }
 
 export interface AuthSession {
-  userId: number;
+  userId: string;
   user: AuthSessionUser;
 }
 
@@ -164,7 +172,6 @@ export function createAuthorizationMiddleware(
   logger: Logger,
 ): RequestHandler {
   return async (req, res, next) => {
-    // Get session from res.locals (set by createMainAuthGuard)
     const session = (res as any).locals?.auth;
     
     if (!session) {
@@ -176,9 +183,33 @@ export function createAuthorizationMiddleware(
       return;
     }
     
-    // For now, default to administrator role
-    // In production, role should be fetched from user_roles table
-    const sessionUser = { id: session.user.id, role: "administrator" as Role };
+    // Fetch the user's role from the database rather than assuming administrator.
+    // The authoritative source is user_role_memberships with an unexpired membership.
+    let userRole: Role = "viewer";
+    try {
+      const membership = await db
+        .select({ role: rolesTable.role })
+        .from(userRoleMembershipsTable)
+        .innerJoin(rolesTable, eq(userRoleMembershipsTable.roleId, rolesTable.id))
+        .where(
+          and(
+            eq(userRoleMembershipsTable.userId, session.userId),
+            sql`${userRoleMembershipsTable.expiresAt} IS NULL OR ${userRoleMembershipsTable.expiresAt} > now()`
+          )
+        )
+        .orderBy(rolesTable.id)
+        .limit(1);
+
+      userRole = membership[0]?.role ? mapDbRoleToEnum(membership[0].role) : "viewer";
+    } catch (error) {
+      logger.warn({ error: String(error) }, "Failed to fetch user role, defaulting to viewer");
+    }
+    
+    const sessionUser: AuthSessionUser = {
+      id: session.userId,
+      displayName: session.user.displayName,
+      email: session.user.email,
+    };
     
     const requiredRole = routeRequiresRole(req.path, req.method);
     
@@ -190,7 +221,7 @@ export function createAuthorizationMiddleware(
         administrator: 3,
       };
       
-      const userLevel = roleHierarchy[sessionUser.role as Role] || 0;
+      const userLevel = roleHierarchy[userRole] || 0;
       const requiredLevel = roleHierarchy[requiredRole as Role] || 1;
       
       if (userLevel < requiredLevel) {
@@ -199,7 +230,7 @@ export function createAuthorizationMiddleware(
           outcome: "insufficient_role",
           userId: sessionUser.id,
           requiredRole,
-          userRole: sessionUser.role,
+          userRole,
           method: req.method,
           path: req.path,
         });

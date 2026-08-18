@@ -2,6 +2,7 @@ import { applicationSettingsTable, db, notificationDeliveriesTable } from "@work
 import { and, asc, eq, lte } from "drizzle-orm";
 import { logger } from "./logger";
 import { MAX_WEBHOOK_ATTEMPTS, nextWebhookAttempt } from "./webhook-retry-policy";
+import { isAllowedWebhookUrl } from "./webhook-policy";
 
 export type WebhookEvent = "incident.opened" | "incident.resolved" | "webhook.test";
 export type WebhookPayload = {
@@ -23,6 +24,9 @@ export async function attemptWebhookDelivery(deliveryId: number) {
   if (delivery.status === "delivered") throw new Error("Delivered webhooks cannot be retried.");
   const settings = await webhookSettings();
   if (!settings?.enabled || !settings.url) throw new Error("Webhook notifications are disabled.");
+  if (!isAllowedWebhookUrl(settings.url)) {
+    throw new Error("Webhook URL is not allowed: must use HTTPS or localhost HTTP.");
+  }
   const attemptedAt = new Date();
   const attemptCount = delivery.attemptCount + 1;
   let status = "failed"; let responseStatus: number | null = null; let errorMessage: string | null = null;
@@ -48,6 +52,10 @@ export async function attemptWebhookDelivery(deliveryId: number) {
 export async function sendWebhook(payload: WebhookPayload, incidentId?: number) {
   const [settings] = await db.select({ enabled: applicationSettingsTable.webhookEnabled, url: applicationSettingsTable.webhookUrl }).from(applicationSettingsTable).limit(1);
   if (!settings?.enabled || !settings.url) return undefined;
+  if (!isAllowedWebhookUrl(settings.url)) {
+    logger.warn({ url: settings.url }, "Webhook URL rejected by SSRF policy");
+    return undefined;
+  }
   const [delivery] = await db.insert(notificationDeliveriesTable).values({
     incidentId, eventType: payload.event, destination: new URL(settings.url).origin, status: "pending", payload,
   }).returning();
