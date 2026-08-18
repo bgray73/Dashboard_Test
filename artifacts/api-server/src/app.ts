@@ -19,6 +19,8 @@ import { OidcService, OpenidClientV6Protocol } from "./lib/auth-oidc";
 import { createAuthorizationMiddleware } from "./lib/authorization";
 import { createReadinessRouter } from "./routes/readiness";
 import { renderMetrics } from "./lib/metrics";
+import { createRateLimitMiddleware } from "./lib/rate-limiter";
+import { createCsrfMiddleware } from "./lib/csrf";
 import type { RuntimeConfig } from "./lib/runtime-config";
 
 export type AuthDependencies = AuthRouteDependencies;
@@ -92,11 +94,19 @@ export function createApp(
     res.type("text/plain; version=0.0.4; charset=utf-8");
     res.send(renderMetrics());
   });
+  app.use("/api/auth", createRateLimitMiddleware({ windowMs: 60_000, maxRequests: 10 }));
   app.use("/api/auth", createAuthRouter(config.auth, auth));
   app.use("/api", createMainAuthGuard(config.auth, auth));
   
   // Phase 19: Role-based authorization middleware
   app.use(createAuthorizationMiddleware(appLogger));
+  
+  // Phase 19: CSRF protection for state-changing requests, excluding public endpoints
+  app.use("/api", (req, res, next) => {
+    const csrfExempt = ["/api/healthz", "/api/auth", "/api/collector"];
+    if (csrfExempt.some((prefix) => req.path.startsWith(prefix))) return next();
+    return createCsrfMiddleware()(req, res, next);
+  });
   
   app.use("/api", labopsRouter);
 
