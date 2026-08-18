@@ -52,8 +52,8 @@ jobs:
 
   # Security scanning runs on the PR to block regressions from entering main.
   # Trivy is the only tool that needs to run on every PR.
-  # Dependency audit, gitleaks, and CodeQL run on schedule + push to main
-  # to avoid slowing down every PR.
+  # Dependency review runs on PRs only — it requires a base/head ref that
+  # only exists in pull_request (and pull_request_target) events.
   trivy:
     runs-on: ubuntu-latest
     needs: validate
@@ -74,6 +74,7 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
   dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     needs: validate
     permissions:
