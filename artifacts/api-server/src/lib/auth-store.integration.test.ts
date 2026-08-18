@@ -113,7 +113,7 @@ describe("PostgreSQL authentication store", () => {
       const issued = await store.issueSession(user.id);
       if (column === "absolute_expires_at") {
         await pool.query(
-          "UPDATE auth_sessions SET idle_expires_at=now()-interval '1 second', absolute_expires_at=now()-interval '1 second' WHERE token_hash=$1",
+          "UPDATE auth_sessions SET idle_expires_at=now()-interval '2 seconds', absolute_expires_at=now()-interval '1 second' WHERE token_hash=$1",
           [hashOpaqueToken(issued.token)],
         );
       } else {
@@ -154,7 +154,7 @@ describe("PostgreSQL authentication store", () => {
       `Timestamp mismatch: ${untouchedTime} vs ${beforeTime}`,
     );
     await pool.query(
-      "UPDATE auth_sessions SET last_seen_at=now()-interval '6 minutes', absolute_expires_at=now()+interval '10 minutes', idle_expires_at=now()+interval '10 minutes' WHERE token_hash=$1",
+      "UPDATE auth_sessions SET last_seen_at=now()-interval '6 minutes', absolute_expires_at=now()+interval '10 minutes', idle_expires_at=now()+interval '9 minutes' WHERE token_hash=$1",
       [hash],
     );
     await store.lookupSession(issued.token);
