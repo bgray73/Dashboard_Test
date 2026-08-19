@@ -1,36 +1,449 @@
 openapi: 3.1.0
+
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
-  title: Api
-  version: 0.1.0
-  description: API specification
+  title: LabOps API
+  version: 1.0.0
+  description: API specification for LabOps - Lab Infrastructure Operations
+
 servers:
   - url: /api
     description: Base API path
+
 tags:
   - name: health
-    description: Health operations
+    description: Health and readiness endpoints
+  - name: auth
+    description: Authentication and session management
+  - name: devices
+    description: Device management operations
+
+security:
+  - bearerAuth: []
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
+      description: Lightweight health check for load balancers and orchestrators
+      security: []
       responses:
         "200":
-          description: Healthy
+          description: Service is healthy
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /readyz:
+    get:
+      operationId: readinessCheck
+      tags: [health]
+      summary: Readiness check
+      description: Verifies database connectivity, migrations, and configuration
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+
+  /devices:
+    get:
+      operationId: getDevices
+      tags: [devices]
+      summary: List devices
+      description: Returns all devices with optional search and status filtering
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by hostname, model, or notes (case-insensitive)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [online, offline, unknown]
+          description: Filter by device status
+      responses:
+        "200":
+          description: Array of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      operationId: createDevice
+      tags: [devices]
+      summary: Create device
+      description: Add a new device for monitoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceInput"
+      responses:
+        "201":
+          description: Device created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /devices/{id}:
+    get:
+      operationId: getDevice
+      tags: [devices]
+      summary: Get device details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Device details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      operationId: updateDevice
+      tags: [devices]
+      summary: Update device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceInput"
+      responses:
+        "200":
+          description: Device updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      operationId: deleteDevice
+      tags: [devices]
+      summary: Delete device
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "204":
+          description: Device deleted successfully
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /devices/{id}/monitoring-history:
+    get:
+      operationId: getDeviceMonitoringHistory
+      tags: [devices]
+      summary: Get device monitoring history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          default: 50
+      responses:
+        "200":
+          description: Monitoring history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonitoringHistory"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT bearer token for authentication
+
   schemas:
     HealthStatus:
       type: object
       properties:
         status:
           type: string
+          enum: [ok]
       required:
         - status
 
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pass, warn, fail]
+        timestamp:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckResult"
+      required:
+        - status
+        - timestamp
+        - checks
+
+    CheckResult:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pass, fail, warn]
+        detail:
+          type: string
+          nullable: true
+      required:
+        - name
+        - status
+
+    Device:
+      type: object
+      properties:
+        id:
+          type: integer
+        hostname:
+          type: string
+        managementIp:
+          type: string
+          format: ipv4
+        deviceType:
+          type: string
+          enum: [Physical Server, Virtual Machine, Container, Router, Switch, Firewall, Storage, Wireless, Other]
+        vendor:
+          type: string
+          enum: [Cisco, Juniper, Arista, Palo Alto, Fortinet, Dell, Supermicro, HPE, VMware, Proxmox, Linux, Other]
+        model:
+          type: string
+        operatingSystem:
+          type: string
+        location:
+          type: string
+        notes:
+          type: string
+        serialNumber:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [online, offline, unknown]
+        lastCheckedAt:
+          type: string
+          format: date-time
+          nullable: true
+        latencyMs:
+          type: integer
+          nullable: true
+        monitoringEnabled:
+          type: boolean
+        monitoringIntervalSeconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+      required:
+        - id
+        - hostname
+        - managementIp
+        - deviceType
+        - vendor
+        - status
+
+    DeviceInput:
+      type: object
+      properties:
+        hostname:
+          type: string
+        managementIp:
+          type: string
+          format: ipv4
+        deviceType:
+          type: string
+          enum: [Physical Server, Virtual Machine, Container, Router, Switch, Firewall, Storage, Wireless, Other]
+        vendor:
+          type: string
+          enum: [Cisco, Juniper, Arista, Palo Alto, Fortinet, Dell, Supermicro, HPE, VMware, Proxmox, Linux, Other]
+        model:
+          type: string
+        operatingSystem:
+          type: string
+        location:
+          type: string
+        serialNumber:
+          type: string
+        notes:
+          type: string
+        monitoringEnabled:
+          type: boolean
+        maintenanceMode:
+          type: boolean
+        maintenanceStartsAt:
+          type: string
+          format: date-time
+          nullable: true
+        maintenanceEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        monitoringIntervalSeconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+      required:
+        - hostname
+        - managementIp
+        - deviceType
+        - vendor
+
+    MonitoringHistory:
+      type: object
+      properties:
+        id:
+          type: integer
+        deviceId:
+          type: integer
+        checkedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [online, offline, warning, error]
+        latencyMs:
+          type: integer
+          nullable: true
+        consecutiveFailures:
+          type: integer
+          nullable: true
+        source:
+          type: string
+        errorMessage:
+          type: string
+          nullable: true
+      required:
+        - id
+        - deviceId
+        - checkedAt
+        - status
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
