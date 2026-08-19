@@ -1,0 +1,19 @@
+# Security Exceptions
+# This file contains approved exceptions to security scan findings.
+# Each exception must have an owner, expiration date, and justification.
+# Exceptions are automatically removed after the expiration date.
+
+# Example format:
+# - id: EXC-2026-001
+#   description: "Example exception for a known false positive"
+#   cve: "CVE-2026-1234"
+#   severity: "low"
+#   owner: "security-team"
+#   expires: "2026-11-18"
+#   justification: |
+#     This is a known false positive in the test environment.
+#     The vulnerability is not exploitable in our production setup.
+#   mitigation: |
+#     We have implemented additional monitoring and will fix in Q1 2027.
+
+# Add exceptions below this line, following the YAML list format.
