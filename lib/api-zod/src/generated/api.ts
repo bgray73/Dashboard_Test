@@ -4,21 +4,55 @@
  * Api
  * API specification
  * OpenAPI spec version: 0.1.0
+ * 
+ * Updated for health/auth endpoints - Phase 29.2
  */
 import * as zod from "zod";
 
 /**
- * Returns server health status
- * @summary Health check
+ * Health status response
+ * @summary Health check - no auth required
  */
-export const HealthCheckResponse = zod.object({
-  status: zod.string(),
+export const healthStatusSchema = zod.object({
+  status: zod.enum(["ok"]),
 });
 
 /**
- * Returns server readiness status
- * @summary Readiness check
+ * Readiness check response with detailed health status
+ * @summary Readiness check - no auth required
  */
-export const ReadinessCheckResponse = zod.object({
-  status: zod.string(),
+export const readinessResponseSchema = zod.object({
+  status: zod.enum(["pass", "warn", "fail"]),
+  timestamp: zod.string(),
+  checks: zod.array(zod.lazy(() => readinessCheckSchema)),
 });
+
+export const readinessCheckSchema = zod.object({
+  name: zod.string(),
+  status: zod.enum(["pass", "fail", "warn"]),
+  detail: zod.string().nullable(),
+});
+
+/**
+ * User profile returned by /auth/me
+ * @summary Get current user
+ */
+export const userProfileSchema = zod.object({
+  id: zod.string(),
+  displayName: zod.string().nullable(),
+  email: zod.string().nullable(),
+});
+
+/**
+ * Generic error response
+ */
+export const errorSchema = zod.object({
+  error: zod.string(),
+});
+
+// Re-export schemas with original names for backward compatibility
+export const HealthCheckResponse = healthStatusSchema;
+export const ReadinessCheckResponse = readinessResponseSchema;
+
+// Export zod for convenient access
+export { zod };

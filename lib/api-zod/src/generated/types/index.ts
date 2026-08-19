@@ -4,6 +4,30 @@
  * Api
  * API specification
  * OpenAPI spec version: 0.1.0
+ * 
+ * Updated for health/auth endpoints - Phase 29.2
  */
 
 export * from "./healthStatus";
+
+export interface ReadinessResponse {
+  status: "pass" | "warn" | "fail";
+  timestamp: string;
+  checks: ReadinessCheck[];
+}
+
+export interface ReadinessCheck {
+  name: string;
+  status: "pass" | "fail" | "warn";
+  detail?: string | null;
+}
+
+export interface UserProfile {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+}
+
+export interface Error {
+  error: string;
+}
