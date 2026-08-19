@@ -1,22 +1,48 @@
 openapi: 3.1.0
+
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for LabOps - Lab Infrastructure Operations
+
 servers:
   - url: /api
     description: Base API path
+
 tags:
   - name: health
-    description: Health operations
+    description: Health and readiness endpoints (no auth required)
+  - name: auth
+    description: Authentication and session management
+  - name: dashboard
+    description: Dashboard and summary endpoints
+  - name: devices
+    description: Device management CRUD operations
+  - name: monitoring
+    description: Device monitoring and incident tracking
+  - name: incidents
+    description: Incident management
+  - name: reports
+    description: Reporting and data export
+  - name: settings
+    description: Application settings and configuration
+  - name: webhooks
+    description: Webhook management and testing
+
+security:
+  - bearerAuth: []
+
 paths:
+
+  # Health endpoints (no auth)
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
+      description: Returns server health status - lightweight check for load balancers
+      security: []
       responses:
         "200":
           description: Healthy
@@ -24,13 +50,216 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /readyz:
+    get:
+      operationId: readinessCheck
+      tags: [health]
+      summary: Readiness probe
+      description: Verifies PostgreSQL connectivity, migrations, and configuration - returns 503 if unhealthy
+      security: []
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+
+  # Auth endpoints
+  /auth/login:
+    get:
+      operationId: authLogin
+      tags: [auth]
+      summary: Initiate OIDC login
+      description: Redirects to the OIDC provider's login page
+      security: []
+      responses:
+        "302":
+          description: Redirect to auth provider
+        "503":
+          description: Provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/callback:
+    get:
+      operationId: authCallback
+      tags: [auth]
+      summary: OIDC callback handler
+      description: Handles the OAuth2 callback from the identity provider
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Redirect to frontend after successful auth
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Redirect URL
+        "400":
+          description: Invalid callback parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Identity not provisioned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/me:
+    get:
+      operationId: getAuthMe
+      tags: [auth]
+      summary: Get current user
+      description: Returns the currently authenticated user's profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Logout
+      description: Revokes the session and clears the auth cookie
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Logout successful
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthStatus:
       type: object
       properties:
         status:
           type: string
+          enum: [ok]
       required:
         - status
 
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pass, fail, warn]
+        timestamp:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadinessCheck"
+      required:
+        - status
+        - timestamp
+        - checks
+
+    ReadinessCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pass, fail, warn]
+        detail:
+          type: string
+          nullable: true
+      required:
+        - name
+        - status
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+      required:
+        - id
+        - displayName
+        - email
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+      required:
+        - id
+        - displayName
+        - email
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
