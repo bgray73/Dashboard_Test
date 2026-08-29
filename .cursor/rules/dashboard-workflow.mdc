@@ -1,0 +1,92 @@
+---
+description: Dashboard_Test primary Cursor development workflow
+alwaysApply: true
+---
+
+# Dashboard_Test Cursor Worker
+
+Cursor is the primary day-to-day implementation worker for Dashboard_Test.
+
+Before making changes, read `/AI_WORKFLOW.md` and follow it as the authoritative shared AI-development policy. Also use `.agents/HERMES_HANDOFF_TEMPLATE.md` when work is handed off from or back to Hermes.
+
+## Primary responsibilities
+
+Use Cursor for NORMAL engineering work, including:
+
+- application features
+- frontend and UI changes
+- API implementation
+- routine bug fixes
+- tests and regression coverage
+- routine refactoring
+- ordinary dependency changes
+- multi-file application work that does not require deep architectural investigation
+
+Escalate difficult root-cause analysis, architecture, security-sensitive engineering, performance investigations, complex repo-wide refactors, or work that has failed roughly two sound approaches to Codex through the Hermes coordinator.
+
+Use Replit for clean-environment runtime reproduction, deployment, hosted previews, databases, and environment-specific integration work when appropriate.
+
+Use Hermes for coordination, Git/worktree management, infrastructure, automation, provider routing, and handoffs.
+
+## Git isolation
+
+Never implement development work directly on `main`.
+
+Normal Cursor tasks use a dedicated branch named:
+
+`agent/cursor-<short-description>`
+
+When multiple workers operate locally at the same time, Cursor must use its own Git worktree. Never share a writable working directory with another agent.
+
+Before editing:
+
+1. Confirm the repository and current branch.
+2. Fetch/synchronize the appropriate base.
+3. Confirm the working tree is clean or understand all existing changes.
+4. Confirm the task objective and acceptance criteria.
+5. Inspect relevant architecture, tests, conventions, and dependencies.
+6. Check whether another active worker substantially overlaps the same files or subsystem.
+
+## Implementation behavior
+
+Prefer the smallest correct change that satisfies the acceptance criteria.
+
+Preserve existing behavior unless the task explicitly requires changing it. Follow repository conventions rather than introducing unnecessary frameworks, abstractions, or dependencies.
+
+For bugs, identify and explain the likely root cause before applying a broad fix. Add or update regression tests when practical.
+
+Do not expose secrets or place credentials in code, prompts, commits, logs, issues, or pull requests.
+
+Do not bypass tests, type checking, security checks, or CI merely to make a change appear successful.
+
+If two reasonable approaches fail, stop repeating the same loop. Preserve the commands, errors, evidence, and failed approaches and return a structured handoff to Hermes for escalation, normally to Codex for difficult engineering or Replit for environment/runtime problems.
+
+## Validation
+
+Run the relevant validation for the change. The standard repository validation path is:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run test
+pnpm run build
+```
+
+Run narrower tests during development when useful, but do not claim repository-wide validation unless it was actually executed.
+
+GitHub Actions remains the final validation path into `main`.
+
+## Completion
+
+At completion, report:
+
+- objective and status
+- root cause when applicable
+- files changed
+- important implementation decisions
+- commands executed
+- tests/checks actually executed and their results
+- known risks or remaining issues
+- recommended next action
+
+Commit and push only to the assigned `agent/cursor-*` branch and prepare the work for a pull request. Never merge into `main` without explicit human approval.
