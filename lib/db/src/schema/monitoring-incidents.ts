@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, serial, text, timestamp, check, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, serial, text, timestamp, check, uniqueIndex } from "drizzle-orm/pg-core";
 import { devicesTable } from "./devices";
+
+export type IncidentJevTriage = {
+  category: "network" | "compute" | "storage" | "wireless" | "other";
+  confidence: number; needsReview: boolean; model: string; evaluatedAt: string; mode: "simulation" | "live";
+};
 
 export const monitoringIncidentsTable = pgTable("monitoring_incidents", {
   id: serial("id").primaryKey(),
@@ -17,6 +22,7 @@ export const monitoringIncidentsTable = pgTable("monitoring_incidents", {
   errorMessage: text("error_message"),
   resolutionReason: text("resolution_reason"),
   idempotencyIdentifier: text("idempotency_identifier"),
+  jevTriage: jsonb("jev_triage").$type<IncidentJevTriage>(),
 }, (table) => [
   index("monitoring_incidents_device_started_idx").on(table.deviceId, table.startedAt),
   index("monitoring_incidents_status_started_idx").on(table.status, table.startedAt),

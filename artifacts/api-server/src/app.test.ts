@@ -13,6 +13,7 @@ const baseConfig: RuntimeConfig = {
   jsonBodyLimit: "100kb",
   urlencodedBodyLimit: "100kb",
   reachabilityProvider: "local-icmp",
+  jev: { mode: "disabled" },
   auth: {
     issuerUrl: "https://issuer.example",
     clientId: "labops-test",

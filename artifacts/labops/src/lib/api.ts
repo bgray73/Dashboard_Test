@@ -7,7 +7,7 @@ export type Device = {
   monitoringIntervalSeconds: number; lastLatencyMs?: number | null; consecutiveFailures: number;
 };
 export type MonitoringHistory = { id: number; deviceId: number; checkedAt: string; status: string; latencyMs: number | null; errorMessage?: string | null; consecutiveFailures: number; source: string };
-export type MonitoringIncident = { id: number; deviceId: number; startedAt: string; lastFailureAt: string; resolvedAt?: string | null; status: "open" | "resolved"; acknowledgedAt?: string | null; acknowledgedBy?: string | null; operatorNote?: string | null; peakFailures: number; durationSeconds?: number | null; errorMessage?: string | null; resolutionReason?: string | null };
+export type MonitoringIncident = { id: number; deviceId: number; startedAt: string; lastFailureAt: string; resolvedAt?: string | null; status: "open" | "resolved"; acknowledgedAt?: string | null; acknowledgedBy?: string | null; operatorNote?: string | null; peakFailures: number; durationSeconds?: number | null; errorMessage?: string | null; resolutionReason?: string | null; jevTriage?: { category: string; confidence: number; needsReview: boolean; model: string; evaluatedAt: string; mode: "simulation" | "live" } | null };
 export type IncidentActivity = { id: number; incidentId: number; eventType: string; actor?: string | null; note?: string | null; occurredAt: string };
 export type MaintenanceHistory = { id: number; deviceId: number; eventType: string; occurredAt: string; maintenanceStartsAt?: string | null; maintenanceEndsAt?: string | null };
 export type SchedulerSnapshot = { serverTime: string; enabledDevices: number; pausedForMaintenance: number; dueDevices: number; nextDueAt: string | null };

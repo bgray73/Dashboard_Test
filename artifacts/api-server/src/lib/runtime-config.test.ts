@@ -27,6 +27,7 @@ describe("parseRuntimeConfig", () => {
       urlencodedBodyLimit: "100kb",
       reachabilityProvider: "local-icmp",
       collectorId: undefined,
+      jev: { mode: "disabled", apiKey: undefined, apiKeyFile: undefined },
       auth: {
         issuerUrl: "https://id.example/tenant",
         clientId: "labops",
@@ -69,6 +70,12 @@ describe("parseRuntimeConfig", () => {
     assert.equal(config.urlencodedBodyLimit, "64kb");
     assert.equal(config.reachabilityProvider, "collector");
     assert.equal(config.collectorId, 42);
+  });
+
+  it("requires credentials to opt into live Jev mode", () => {
+    assert.throws(() => parseRuntimeConfig({ ...authEnvironment, DATABASE_URL: databaseUrl, LABOPS_JEV_MODE: "live" }), /LABOPS_JEV_API_KEY/);
+    assert.equal(parseRuntimeConfig({ ...authEnvironment, DATABASE_URL: databaseUrl, LABOPS_JEV_MODE: "simulation" }).jev.mode, "simulation");
+    assert.equal(parseRuntimeConfig({ ...authEnvironment, DATABASE_URL: databaseUrl, LABOPS_JEV_MODE: "live", LABOPS_JEV_API_KEY_FILE: "/run/secrets/jev" }).jev.mode, "live");
   });
 
   for (const [name, environment] of Object.entries({

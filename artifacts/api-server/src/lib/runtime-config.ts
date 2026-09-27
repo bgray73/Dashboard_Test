@@ -34,6 +34,9 @@ const environmentSchema = z
     URLENCODED_BODY_LIMIT: bodyLimitSchema.default("100kb"),
     LABOPS_REACHABILITY_PROVIDER: z.enum(["local-icmp", "collector"]).default("local-icmp"),
     LABOPS_COLLECTOR_ID: z.coerce.number().int().min(1).max(2_147_483_647).optional(),
+    LABOPS_JEV_MODE: z.enum(["disabled", "simulation", "live"]).default("disabled"),
+    LABOPS_JEV_API_KEY: z.string().optional(),
+    LABOPS_JEV_API_KEY_FILE: z.string().optional(),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     OIDC_ISSUER_URL: z.string().trim().min(1).max(2_048),
     OIDC_CLIENT_ID: z.string().trim().min(1),
@@ -54,6 +57,9 @@ const environmentSchema = z
       environment.LABOPS_COLLECTOR_ID === undefined
     ) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["LABOPS_COLLECTOR_ID"], message: "is required when collector reachability is enabled" });
+    }
+    if (environment.LABOPS_JEV_MODE === "live" && !environment.LABOPS_JEV_API_KEY && !environment.LABOPS_JEV_API_KEY_FILE) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["LABOPS_JEV_API_KEY"], message: "or LABOPS_JEV_API_KEY_FILE is required for live mode" });
     }
     for (const [name, raw, originOnly] of [
       ["OIDC_ISSUER_URL", environment.OIDC_ISSUER_URL, false],
@@ -110,6 +116,7 @@ export type RuntimeConfig = {
   urlencodedBodyLimit: string;
   reachabilityProvider: "local-icmp" | "collector";
   collectorId?: number;
+  jev: { mode: "disabled" | "simulation" | "live"; apiKey?: string; apiKeyFile?: string };
   auth: AuthRuntimeConfig;
 };
 
@@ -147,6 +154,7 @@ export function parseRuntimeConfig(environment: NodeJS.ProcessEnv): RuntimeConfi
       urlencodedBodyLimit: result.data.URLENCODED_BODY_LIMIT,
       reachabilityProvider: result.data.LABOPS_REACHABILITY_PROVIDER,
       collectorId: result.data.LABOPS_COLLECTOR_ID,
+      jev: { mode: result.data.LABOPS_JEV_MODE, apiKey: result.data.LABOPS_JEV_API_KEY, apiKeyFile: result.data.LABOPS_JEV_API_KEY_FILE },
       auth: {
         issuerUrl: result.data.OIDC_ISSUER_URL,
         clientId: result.data.OIDC_CLIENT_ID,
