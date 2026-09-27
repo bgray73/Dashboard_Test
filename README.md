@@ -1,5 +1,11 @@
 # LabOps
 
+## Optional Jev incident advisory
+
+LabOps can attach a Jev category suggestion to each newly opened reachability incident. The default `LABOPS_JEV_MODE=disabled` makes no model calls. Set `LABOPS_JEV_MODE=simulation` to exercise the display without a key or outbound request. For a real call, set `LABOPS_JEV_MODE=live` and provide `LABOPS_JEV_API_KEY_FILE` with a server-side mounted secret (or `LABOPS_JEV_API_KEY` in local development). Apply the `20260927_jev_triage.sql` database migration before deploying this version.
+
+Only device type, vendor, unreachable status, and failure count are sent to TypeSafe. Hostnames, IP addresses, notes, error details, and credentials are excluded. The suggestion appears on existing incidents in the Monitoring view after refresh and in the incident API; it never changes the outage threshold, acknowledgement, notification delivery, or resolution. Confidence below 0.8 and unknown categories are marked for operator review. An API failure leaves the incident unchanged. This is a routing hint, **not a root-cause diagnosis**.
+
 LabOps is a dark-first console for home and network labs. It combines device inventory, automated and manual reachability checks, network configuration generation, saved configurations, and practical IPv4 tools in one React application.
 
 ![LabOps dashboard](screenshots/labops-dashboard-final.jpg)

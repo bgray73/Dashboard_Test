@@ -8,6 +8,7 @@ import { calculateMonitoringState, isDeviceDue, retentionCutoff } from "./monito
 import { incidentDurationSeconds } from "./availability-policy";
 import { sendWebhook, type WebhookPayload } from "./webhook-notifications";
 import { isDeviceInMaintenance } from "./maintenance-policy";
+import { readJevKey, triageIncident } from "./jev-triage";
 
 let polling = false;
 let retentionCleanupQueue: Promise<void> = Promise.resolve();
@@ -77,8 +78,9 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
   const result = await checkReachability(device.managementIp, timeoutSeconds, provider);
   const { consecutiveFailures: failures, effectiveStatus } = calculateMonitoringState(result.status, device.consecutiveFailures);
   const checkedAt = new Date();
-  const { updated, notifications } = await db.transaction(async (tx) => {
+  const { updated, notifications, opened } = await db.transaction(async (tx) => {
     const notifications: Array<{ payload: WebhookPayload; incidentId: number }> = [];
+    let opened: number | undefined;
     const rows = await tx.update(devicesTable).set({
       lastStatus: effectiveStatus, lastCheckedAt: checkedAt, lastLatencyMs: result.latencyMs,
       consecutiveFailures: failures, updatedAt: checkedAt,
@@ -103,6 +105,7 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
           peakFailures: failures, errorMessage: result.message,
         }).returning();
         await tx.insert(incidentActivityTable).values({ incidentId: created.id, eventType: "opened", actor: "System", note: result.message, occurredAt: checkedAt });
+        opened = created.id;
         notifications.push({ incidentId: created.id, payload: {
           event: "incident.opened", occurredAt: checkedAt.toISOString(), incidentId: created.id,
           device: { id: device.id, hostname: device.hostname, managementIp: device.managementIp },
@@ -127,9 +130,17 @@ export async function recordDeviceCheck(device: typeof devicesTable.$inferSelect
         } });
       }
     }
-    return { updated: rows[0], notifications };
+    return { updated: rows[0], notifications, opened };
   });
   for (const notification of notifications) void sendWebhook(notification.payload, notification.incidentId).catch((error) => logger.warn({ err: error }, "Unable to record webhook delivery"));
+  if (opened !== undefined && runtimeConfig.jev.mode !== "disabled") {
+    // Never hold the outage transaction or notifications open for an external model.
+    void (async () => {
+      const triage = await triageIncident({ deviceType: device.deviceType, vendor: device.vendor, consecutiveFailures: failures },
+        { mode: runtimeConfig.jev.mode, apiKey: runtimeConfig.jev.mode === "live" ? readJevKey(process.env) : undefined });
+      if (triage) await db.update(monitoringIncidentsTable).set({ jevTriage: triage }).where(eq(monitoringIncidentsTable.id, opened));
+    })().catch((error) => logger.warn({ err: error }, "Jev advisory triage unavailable"));
+  }
   return { device: updated, ...result, status: effectiveStatus };
 }
 
